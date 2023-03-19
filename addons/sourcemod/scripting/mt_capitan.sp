@@ -10,7 +10,8 @@ public Plugin myinfo = {
 	name = "MixTeamCapitan",
 	author = "TouchMe",
 	description = "Adds capitan mix",
-	version = "1.0.1"
+	version = "2.0.1",
+	url = "https://github.com/TouchMe-Inc/l4d2_mix_team"
 };
 
 
@@ -20,13 +21,17 @@ public Plugin myinfo = {
 #define TEAM_SURVIVOR           2
 #define TEAM_INFECTED           3
 
-#define MENU_TITTLE_SIZE       128
+#define MENU_TITTLE_SIZE        128
 
-#define STEP_INIT              0
-#define STEP_FIRST_CAPITAN     1
-#define STEP_SECOND_CAPITAN    2
-#define STEP_PICK_TEAM_FIRST   3
-#define STEP_PICK_TEAM_SECOND  4
+#define STEP_INIT               0
+#define STEP_FIRST_CAPITAN      1
+#define STEP_SECOND_CAPITAN     2
+#define STEP_PICK_PLAYER        3
+
+#define LAST_PICK               0
+#define CURRENT_PICK            1
+
+#define MIN_PLAYERS             4
 
 // Macros
 #define IS_REAL_CLIENT(%1)      (IsClientInGame(%1) && !IsFakeClient(%1))
@@ -37,7 +42,8 @@ public Plugin myinfo = {
 int
 	g_iFirstCapitan = 0,
 	g_iSecondCapitan = 0,
-	g_iVoteCount[MAXPLAYERS + 1] = {0, ...};
+	g_iVoteCount[MAXPLAYERS + 1] = {0, ...},
+	g_iOrderPickPlayer = 0;
 
 /**
  * Loads dictionary files. On failure, stops the plugin execution.
@@ -65,16 +71,20 @@ public void OnPluginStart() {
 	InitTranslations();
 }
 
-public void OnAllPluginsLoaded() {
-	AddMixType("capitan", (FindConVar("survivor_limit").IntValue * 2));
+public void OnAllPluginsLoaded()
+{
+	int iCalcMinPlayers = (FindConVar("survivor_limit").IntValue * 2);
+	
+	// fix for 1v1
+	AddMixType("capitan", (iCalcMinPlayers < MIN_PLAYERS) ? MIN_PLAYERS : iCalcMinPlayers, 60);
 }
 
-public void GetVoteTitle(int iClient, char[] sTitle) {
-	Format(sTitle, VOTE_TITLE_SIZE, "%T", "VOTE_TITLE", iClient);
+public void GetVoteDisplayMessage(int iClient, char[] sTitle) {
+	Format(sTitle, DISPLAY_MSG_SIZE, "%T", "VOTE_DISPLAY_MSG", iClient);
 }
 
-public void GetVoteMessage(int iClient, char[] sMsg) {
-	Format(sMsg, VOTE_MSG_SIZE, "%T", "VOTE_MESSAGE", iClient);
+public void GetVoteEndMessage(int iClient, char[] sMsg) {
+	Format(sMsg, VOTEEND_MSG_SIZE, "%T", "VOTE_END_MSG", iClient);
 }
 
 /**
@@ -82,7 +92,7 @@ public void GetVoteMessage(int iClient, char[] sMsg) {
  * 
  * @noreturn
  */
-public void OnMixStart() {
+public void OnMixInProgress() {
 	Flow(STEP_INIT);
 }
 
@@ -107,7 +117,7 @@ public Menu BuildMenu(int iClient, int iStep)
 			Format(sMenuTitle, sizeof(sMenuTitle), "%t", "MENU_TITLE_SECOND_CAPITAN", iClient);
 		}
 
-		case STEP_PICK_TEAM_FIRST, STEP_PICK_TEAM_SECOND: {
+		case STEP_PICK_PLAYER: {
 			Format(sMenuTitle, sizeof(sMenuTitle), "%t", "MENU_TITLE_PICK_TEAMS", iClient);
 		}
 	}
@@ -133,7 +143,7 @@ public Menu BuildMenu(int iClient, int iStep)
 	return hMenu.ItemCount > 1 ? hMenu : null;
 }
 
-bool DisplayMenuAll(int iStep) 
+bool DisplayMenuAll(int iStep, int iTime) 
 {
 	Menu hMenu;
 
@@ -147,7 +157,7 @@ bool DisplayMenuAll(int iStep)
 			return false;
 		}
 
-		DisplayMenu(hMenu, iClient, 10);
+		DisplayMenu(hMenu, iClient, iTime);
 	}
 
 	return true;
@@ -184,24 +194,25 @@ public int HandleMenu(Menu hMenu, MenuAction iAction, int iClient, int iIndex)
 			case STEP_FIRST_CAPITAN, STEP_SECOND_CAPITAN: {
 				g_iVoteCount[iTarget] ++;
 			}
-			case STEP_PICK_TEAM_FIRST, STEP_PICK_TEAM_SECOND: 
-			{	
-				bool bIsPickFirstCapitan = (iStep == STEP_PICK_TEAM_FIRST);
 
-				if (bIsPickFirstCapitan)
+			case STEP_PICK_PLAYER: 
+			{
+				bool bIsOrderPickFirstCapitan = !(g_iOrderPickPlayer & 2);
+
+				if (bIsOrderPickFirstCapitan && IsFirstCapitan(iClient))
 				{
 					SetClientTeamByCapitan(iTarget, TEAM_SURVIVOR);	
-					CPrintToChatAll("%t", "PICK_TEAM", g_iFirstCapitan, iTarget);
+					CPrintToChatAll("%t", "PICK_TEAM", iClient, iTarget);
 
-					Flow(STEP_PICK_TEAM_SECOND);
+					g_iOrderPickPlayer++;
 				}
 
-				else
+				else if (!bIsOrderPickFirstCapitan && IsSecondCapitan(iClient))
 				{
 					SetClientTeamByCapitan(iTarget, TEAM_INFECTED);	
-					CPrintToChatAll("%t", "PICK_TEAM", g_iSecondCapitan, iTarget);
+					CPrintToChatAll("%t", "PICK_TEAM", iClient, iTarget);
 
-					Flow(STEP_PICK_TEAM_FIRST);
+					g_iOrderPickPlayer++;
 				}
 			}
 		}
@@ -216,31 +227,43 @@ public void Flow(int iStep)
 	{
 		case STEP_INIT:
 		{
+			g_iOrderPickPlayer = 1;
+
 			PrepareVote();
-			DisplayMenuAll(STEP_FIRST_CAPITAN);
+			DisplayMenuAll(STEP_FIRST_CAPITAN, 10);
 
 			CreateTimer(11.0, NextStepTimer, STEP_FIRST_CAPITAN);
 		}
 
 		case STEP_FIRST_CAPITAN: 
 		{
-			SetFirstCapitan(GetVoteWinner());
+			int iFirstCapitan = GetVoteWinner();
+
+			SetFirstCapitan(iFirstCapitan);
+
+			CPrintToChatAll("%t", "NEW_FIRST_CAPITAN", iFirstCapitan, g_iVoteCount[iFirstCapitan]);
+
 			PrepareVote();
-			DisplayMenuAll(STEP_SECOND_CAPITAN);
 
 			CreateTimer(11.0, NextStepTimer, STEP_SECOND_CAPITAN);
+
+			DisplayMenuAll(STEP_SECOND_CAPITAN, 10);
 		}
 
 		case STEP_SECOND_CAPITAN:
 		{
-			SetSecondCapitan(GetVoteWinner());
+			int iSecondCapitan = GetVoteWinner();
 
-			Flow(STEP_PICK_TEAM_FIRST);
+			SetSecondCapitan(iSecondCapitan);
+
+			CPrintToChatAll("%t", "NEW_SECOND_CAPITAN", iSecondCapitan, g_iVoteCount[iSecondCapitan]);
+
+			Flow(STEP_PICK_PLAYER);
 		}
 
-		case STEP_PICK_TEAM_FIRST, STEP_PICK_TEAM_SECOND: 
+		case STEP_PICK_PLAYER: 
 		{
-			int iCapitan = (iStep == STEP_PICK_TEAM_FIRST) ? g_iFirstCapitan : g_iSecondCapitan;
+			int iCapitan = (g_iOrderPickPlayer & 2) ? g_iSecondCapitan : g_iFirstCapitan;
 
 			Menu hMenu = BuildMenu(iCapitan, iStep);
 
@@ -252,20 +275,19 @@ public void Flow(int iStep)
 					if (!IS_REAL_CLIENT(iClient) || !IS_SPECTATOR(iClient) || !IsMixMember(iClient)) {
 						continue;
 					}
-					
+
 					(FindSurvivorBot() > 0) ? CheatCommand(iClient, "sb_takecontrol") : ChangeClientTeam(iClient, TEAM_INFECTED);	
 					break;
 				}
 
-				// Required
-				CallEndMix();
+				CallEndMix(); // Required
 			}
 
 			else
 			{
-				DisplayMenu(hMenu, iCapitan, 1);
+				CreateTimer(1.0, NextStepTimer, iStep);
 
-				CreateTimer(1.0, NextStepTimer, iStep); 
+				DisplayMenu(hMenu, iCapitan, 1);
 			}
 		}
 	}
@@ -274,8 +296,12 @@ public void Flow(int iStep)
 /**
  * Timer.
  */
- public Action NextStepTimer(Handle hTimer, int iStep)
+public Action NextStepTimer(Handle hTimer, int iStep)
 {
+	if (GetMixState() != STATE_IN_PROGRESS) {
+		return Plugin_Stop;
+	}
+
 	Flow(iStep);
 
 	return Plugin_Stop;
@@ -321,20 +347,20 @@ int GetVoteWinner()
 	return iWinner;
 }
 
-void SetFirstCapitan(int iClient)
-{
-	g_iFirstCapitan = iClient;
-
-	CheatCommand(iClient, "sb_takecontrol");
-	CPrintToChatAll("%t", "NEW_FIRST_CAPITAN", iClient, g_iVoteCount[iClient]);
+void SetFirstCapitan(int iClient) {
+	CheatCommand((g_iFirstCapitan = iClient), "sb_takecontrol");
 }
 
-void SetSecondCapitan(int iClient)
-{
-	g_iSecondCapitan = iClient;
+bool IsFirstCapitan(int iClient) {
+	return g_iFirstCapitan == iClient;
+}
 
-	ChangeClientTeam(iClient, TEAM_INFECTED);
-	CPrintToChatAll("%t", "NEW_SECOND_CAPITAN", iClient, g_iVoteCount[iClient]);
+void SetSecondCapitan(int iClient) {
+	ChangeClientTeam((g_iSecondCapitan = iClient), TEAM_INFECTED);
+}
+
+bool IsSecondCapitan(int iClient) {
+	return g_iSecondCapitan == iClient;
 }
 
 /**
