@@ -198,7 +198,7 @@ stock int GetSeriousClientCount(bool inGame = false)
 	
 	return clients;
 }
-public void OnMixStart()
+public void OnMixInProgress()
 {
     ResetAllMapTransition();
     g_sMixMapQueue.Clear();
