@@ -1,9 +1,14 @@
-🌏 [简体中文](./README_zhCN.md)
+# 关于mix_team
 
-# About mix_team
-Plugin adds voting for mixing teams. The mix_team plugin itself does not implement any mixing of players, but provides an API. 
+该插件添加功能mix队伍投票。mix_team插件本身并不实现玩家混合，但提供了API。
+多种预置mix类型可用：
 
-Several prepared author's mix types are available: mt_capitan and mt_random.
+1. capitan(队长选人)
+2. random(随机分配)
+3. exp(基于游戏经验分配)
+4. randmap(随机官方地图)
+5. ranthirdmap(随机第三方地图)
+6. rank(基于[VersusStat](https://github.com/TouchMe-Inc/l4d2_versus_stats)分配)
 
 ## Commands
 `!mix <type>` - start mix <type>.
