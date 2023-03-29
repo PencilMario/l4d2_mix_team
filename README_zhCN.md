@@ -10,39 +10,39 @@
 5. ranthirdmap(随机第三方地图)
 6. rank(基于[VersusStat](https://github.com/TouchMe-Inc/l4d2_versus_stats)分配)
 
-## Commands
-`!mix <type>` - start mix <type>.
+##命令
+`!mix <type>` - 开始 <type> 类型的mix.
 
-`!unmix` or `!cancelmix` - abort the mix.
+`!unmix` / `!cancelmix` - 终端mix.
 
-## How to create mix type?
-You must write and compile a plugin that implements all methods:
+## 如何创建 mix 类型?
+您必须编写和编译一个实现所有方法的插件：
 ```pawn
 #include <sourcemod>
 #include <mix_team>
 
 public void OnAllPluginsLoaded()
 {
-	// add mix type with timeout 60sec (can be interrupted). Run: "!mix supermix"
+	// 添加超时为60秒（可以被打断），至少要求4人的mix类型。指令：!mix supermix
 	AddMixType("supermix", 4, 60);
 }
 
-// MANDATORY set the name of the vote
-public void GetVoteDisplayMessage(int iClient, char[] sTitle) { // Required!!!
+// 设定投票名称
+public void GetVoteDisplayMessage(int iClient, char[] sTitle) { // 必需！！！
 	Format(sTitle, DISPLAY_MSG_SIZE, "My vote title!");
 }
 
-// MANDATORY set a message in case of success
-public void GetVoteEndMessage(int iClient, char[] sMsg) { // Required!!!
+// 设定投票成功消息
+public void GetVoteEndMessage(int iClient, char[] sMsg) { // 必需！！！
 	Format(sMsg, VOTEEND_MSG_SIZE, "Vote done!");
 }
 
-public void OnMixInProgress() // Required!!! Point of entry
+public void OnMixInProgress() // 必需！！！入口点
 {
-	// Payload
+	// mix主流程
 	
 	...
-	CallEndMix(); // Required!!! Exit point
+	CallEndMix(); // 必需！！！出口点
 }
 ```
 
