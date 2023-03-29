@@ -13,7 +13,7 @@
 ## 命令
 `!mix <type>` - 开始 <type> 类型的mix.
 
-`!unmix` / `!cancelmix` - 终端mix.
+`!unmix` / `!cancelmix` - 停止mix.
 
 ## 如何创建 mix 类型?
 您必须编写和编译一个实现所有方法的插件：
