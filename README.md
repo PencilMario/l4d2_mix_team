@@ -41,6 +41,7 @@ public void OnMixInProgress() // Required!!! Point of entry
 
 ## Require
 [NativeVotes](https://github.com/sapphonie/sourcemod-nativevotes-updated)
+[ripext](https://github.com/ErikMinekus/sm-ripext/releases/tag/1.3.1)
 
 ## Support
 [ReadyUp](https://github.com/SirPlease/L4D2-Competitive-Rework/blob/master/addons/sourcemod/scripting/readyup.sp)
