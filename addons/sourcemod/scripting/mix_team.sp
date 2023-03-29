@@ -18,7 +18,7 @@ public Plugin myinfo =
 	name = "MixTeam",
 	author = "TouchMe",
 	description = "Mixing players for versus mode",
-	version = "2.0.1",
+	version = "2.1",
 	url = "https://github.com/TouchMe-Inc/l4d2_mix_team"
 };
 
@@ -28,18 +28,14 @@ public Plugin myinfo =
 #define FORWARD_DISPLAY_MSG     "GetVoteDisplayMessage"
 #define FORWARD_VOTEEND_MSG     "GetVoteEndMessage"
 #define FORWARD_IN_PROGRESS     "OnMixInProgress"
-
-#define TEAM_NONE               0
-#define TEAM_SPECTATOR          1
-#define TEAM_SURVIVOR           2
-#define TEAM_INFECTED           3
+#define FORWARD_ON_MIX_SUCCESS  "OnMixSuccess"
+#define FORWARD_ON_MIX_FAILED   "OnMixFailed"
 
 #define VOTE_TIME               15
 
 #define IS_VALID_CLIENT(%1)     (%1 > 0 && %1 <= MaxClients)
 #define IS_REAL_CLIENT(%1)      (IsClientInGame(%1) && !IsFakeClient(%1))
-#define IS_SPECTATOR(%1)        (GetClientTeam(%1) == TEAM_SPECTATOR)
-#define IS_SURVIVOR(%1)         (GetClientTeam(%1) == TEAM_SURVIVOR)
+
 
 enum struct TypeItem
 {
@@ -49,7 +45,7 @@ enum struct TypeItem
 	int timeout;
 }
 
-methodmap TypeList < ArrayList 
+methodmap TypeList < ArrayList
 {
 	public TypeList() {
 		return view_as<TypeList>(new ArrayList(sizeof(TypeItem)));
@@ -165,6 +161,9 @@ bool
 ConVar
 	g_hGameMode = null;
 
+GlobalForward
+	g_fOnMixSuccess,
+	g_fOnMixFailed;
 
 /**
   * Global event. Called when all plugins loaded.
@@ -212,10 +211,19 @@ public void OnLibraryAdded(const char[] sName)
 public void OnRoundIsLive() 
 {
 	if (g_iMixState != STATE_NONE) {
-		CancelMix();
+		AbortMix();
 	}
 
 	g_bRoundIsLive = true;
+}
+
+/**
+  * Called when the map starts loading.
+  *
+  * @noreturn
+  */
+public void OnMapInit(const char[] sMapName) { 
+	g_bRoundIsLive = false;
 }
 
 /**
@@ -236,14 +244,6 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 		return APLRes_SilentFailure;
 	}
 
-	InitNatives();
-	RegPluginLibrary("mix_team");
-
-	return APLRes_Success;
-}
-
-void InitNatives()
-{
 	CreateNative("AddMixType", Native_AddMixType);
 	CreateNative("GetMixState", Native_GetMixState);
 	CreateNative("GetMixType", Native_GetMixType);
@@ -251,6 +251,10 @@ void InitNatives()
 	CreateNative("CallEndMix", Native_CallEndMix);
 	CreateNative("IsMixMember", Native_IsMixMember);
 	CreateNative("GetLastTeam", Native_GetLastTeam);
+
+	RegPluginLibrary("mix_team");
+
+	return APLRes_Success;
 }
 
 /**
@@ -267,7 +271,7 @@ int Native_AddMixType(Handle hPlugin, int iParams)
 	}
 
 	char sName[MIX_NAME_SIZE];
-	
+
 	if (GetNativeString(1, sName, sizeof(sName)) == SP_ERROR_NONE)
 	{
 		int iMinPlayers = GetNativeCell(2);
@@ -310,8 +314,8 @@ int Native_GetMixType(Handle hPlugin, int iParams) {
  */
 int Native_CallCancelMix(Handle hPlugin, int iParams)
 {
-	CancelMix();
-	return 1;
+	AbortMix();
+	return 0;
 }
 
 /**
@@ -319,12 +323,13 @@ int Native_CallCancelMix(Handle hPlugin, int iParams)
  * 
  * @param hPlugin       Handle to the plugin
  * @param iParams       Number of parameters
- * @return              Return 
+ * @return              Return
  */
 int Native_CallEndMix(Handle hPlugin, int iParams)
 {
 	EndMix();
-	return 1;
+
+	return 0;
 }
 
 /**
@@ -332,7 +337,7 @@ int Native_CallEndMix(Handle hPlugin, int iParams)
  * 
  * @param hPlugin       Handle to the plugin
  * @param iParams       Number of parameters
- * @return              Return 
+ * @return              Return
  */
 int Native_IsMixMember(Handle hPlugin, int iParams)
 {
@@ -342,44 +347,21 @@ int Native_IsMixMember(Handle hPlugin, int iParams)
 }
 
 /**
- * Native
+ * Returns the team the player was on after voting for the mix.
  * 
  * @param hPlugin       Handle to the plugin
  * @param iParams       Number of parameters
- * @return              Return 
+ * @return              Returns the command if the player was in the mix, otherwise -1
  */
 int Native_GetLastTeam(Handle hPlugin, int iParams)
 {
 	int iClient = GetNativeCell(1);
 
-	return g_hPlayers[iClient].team;
-}
-
-/**
- * Fragment
- * 
- * @noreturn
- */
-void CancelMix()
-{
-	EndMix();
-
-	if (g_hCurVote != null) {
-		g_hCurVote.Close(); 
+	if (!g_hPlayers[iClient].member) {
+		return -1;
 	}
 
-	RollbackPlayers();
-}
-
-/**
- * Fragment
- * 
- * @noreturn
- */
-void EndMix()
-{
-	g_iMixState = STATE_NONE;
-	g_iMixType = TYPE_NONE;
+	return g_hPlayers[iClient].team;
 }
 
 /**
@@ -389,12 +371,13 @@ void EndMix()
  */
 public void OnPluginStart()
 {
-	g_hTypeList = new TypeList();
-
 	InitTranslations();
 	InitCvars();
-	InitCmds();
 	InitEvents();
+	InitCmds();
+	InitForwards();
+
+	g_hTypeList = new TypeList();
 }
 
 /**
@@ -467,15 +450,8 @@ public void OnConfigsExecuted()
  * 
  * @noreturn
  */
-void CheckGameMode(const char[] sGameMode)
-{
-	if (!StrEqual(sGameMode, "versus", false) && !StrEqual(sGameMode, "mutation12", false)) {
-		g_bGamemodeAvailable = false;
-	} 
-	
-	else {
-		g_bGamemodeAvailable = true;
-	}
+void CheckGameMode(const char[] sGameMode) {
+	g_bGamemodeAvailable = (StrEqual(sGameMode, "versus", false) || StrEqual(sGameMode, "mutation12", false));
 }
 
 /**
@@ -505,7 +481,7 @@ public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcas
 		g_bRoundIsLive = true;
 
 		if (g_iMixState != STATE_NONE) {
-			CancelMix();
+			AbortMix();
 		}
 	}
 
@@ -545,7 +521,7 @@ public Action Event_PlayerTeam(Event event, char[] event_name, bool dontBroadcas
 
 		if (iNewTeam == TEAM_NONE && g_hPlayers[iClient].member)
 		{
-			CancelMix();
+			AbortMix();
 			CPrintToChatAll("%t", "CLIENT_LEAVE", iClient);
 		}
 	}
@@ -568,7 +544,7 @@ void InitCmds()
 
 /**
  * Blocking a team change if there is a mix of teams now.
- * 
+ *
  * @param iClient     Client index
  * @param sCmd        No desc
  * @param iArgs       Number of parameters
@@ -587,7 +563,7 @@ public Action Cmd_OnPlayerJoinTeam(int iClient, const char[] sCmd, int iArgs)
 
 /**
  * Action on command input at the start of the mix.
- * 
+ *
  * @param iClient     Client index
  * @param iArgs       Number of parameters
  * @return            Plugin_Handled | Plugin_Continue
@@ -598,18 +574,25 @@ public Action Cmd_VoteMix(int iClient, int iArgs)
 		return Plugin_Handled;
 	}
 
+	if (InSecondHalfOfRound())
+	{
+		CPrintToChat(iClient, "%T", "SECOND_HALF_OF_ROUND", iClient);
+
+		return Plugin_Continue;
+	}
+
 	if (g_bReadyUpAvailable && !IsInReady())
 	{
 		CPrintToChat(iClient, "%T", "LEFT_READYUP", iClient);
 
-		return Plugin_Handled;
+		return Plugin_Continue;
 	} 
 		
-	else if (!g_bReadyUpAvailable && g_bRoundIsLive) 
+	if (!g_bReadyUpAvailable && g_bRoundIsLive) 
 	{
 		CPrintToChat(iClient, "%T", "ROUND_LIVE", iClient);
 
-		return Plugin_Handled;
+		return Plugin_Continue;
 	}
 
 	if (!iArgs) 
@@ -617,14 +600,14 @@ public Action Cmd_VoteMix(int iClient, int iArgs)
 		CPrintToChat(iClient, "%T", "NO_ARGUMENT", iClient);
 		CPrintExampleArguments(iClient);
 
-		return Plugin_Handled;
+		return Plugin_Continue;
 	}
 
 	if (g_iMixState != STATE_NONE) 
 	{
 		CPrintToChat(iClient, "%T", "ALREADY_IN_PROGRESS", iClient);
 
-		return Plugin_Handled;
+		return Plugin_Continue;
 	}
 	
 	char sArg[32];
@@ -637,7 +620,7 @@ public Action Cmd_VoteMix(int iClient, int iArgs)
 		CPrintToChat(iClient, "%T", "BAD_ARGUMENT", iClient, sArg);
 		CPrintExampleArguments(iClient);
 
-		return Plugin_Handled;
+		return Plugin_Continue;
 	}
 
 	int iMinPlayers = g_hTypeList.GetMinPlayers(iMixType);
@@ -646,17 +629,17 @@ public Action Cmd_VoteMix(int iClient, int iArgs)
 	if (iTotalPlayers < iMinPlayers)
 	{
 		CPrintToChat(iClient, "%T", "BAD_TEAM_SIZE", iClient, iMinPlayers);
-		return Plugin_Handled;
+		return Plugin_Continue;
 	}
 
 	StartVoteMix(iClient, iMixType);
-	
+
 	return Plugin_Continue;
 }
 
 /**
- * ...
- * 
+ * Abort the mix before it's finished.
+ *
  * @param iClient     Client index
  * @param iArgs       Number of parameters
  * @return            Plugin_Handled | Plugin_Continue
@@ -668,14 +651,14 @@ public Action Cmd_CancelMix(int iClient, int iArgs)
 	}
 
 	if (g_iMixState == STATE_NONE) {
-		return Plugin_Handled;
+		return Plugin_Continue;
 	}
 
 	int iEndTime = g_iMixTimeout - GetTime();
 
 	if (iEndTime < 0)
 	{
-		CancelMix();
+		AbortMix();
 		CPrintToChatAll("%t", "CANCEL_MIX_SUCCESS", iClient);
 	} 
 	
@@ -683,7 +666,18 @@ public Action Cmd_CancelMix(int iClient, int iArgs)
 		CPrintToChat(iClient, "%T", "CANCEL_MIX_FAIL", iClient, iEndTime);
 	}
 
-	return Plugin_Handled;
+	return Plugin_Continue;
+}
+
+/**
+ * Fragment
+ * 
+ * @noreturn
+ */
+void InitForwards() 
+{
+	g_fOnMixSuccess = new GlobalForward(FORWARD_ON_MIX_SUCCESS, ET_Ignore, Param_String);
+	g_fOnMixFailed = new GlobalForward(FORWARD_ON_MIX_FAILED, ET_Ignore, Param_String);
 }
 
 /**
@@ -721,7 +715,7 @@ public void StartVoteMix(int iClient, int iMixType)
 
 		iTeam = GetClientTeam(iPlayer);
 
-		if (iTeam != TEAM_SPECTATOR)
+		if (iTeam == TEAM_INFECTED || iTeam == TEAM_SURVIVOR)
 		{
 			iPlayers[iTotalPlayers++] = iPlayer;
 			g_hPlayers[iPlayer].member = true;
@@ -750,7 +744,7 @@ public void StartVoteMix(int iClient, int iMixType)
   * @param iAction 			Current action.
   * @param iParam1 		    Client index | Vote status.
   *
-  * @noreturn
+  * @return                 None
   */
 public int HandlerVote(NativeVote hVote, MenuAction iAction, int iParam1, int iParam2)
 {
@@ -769,7 +763,6 @@ public int HandlerVote(NativeVote hVote, MenuAction iAction, int iParam1, int iP
 		case MenuAction_Display:
 		{
 			char sVoteDisplayMessage[DISPLAY_MSG_SIZE];
-			int iReturn;
 
 			Handle hPlugin = g_hTypeList.GetPlugin(g_iMixType);
 			Function hFunc = GetFunctionByName(hPlugin, FORWARD_DISPLAY_MSG);
@@ -782,7 +775,7 @@ public int HandlerVote(NativeVote hVote, MenuAction iAction, int iParam1, int iP
 			Call_StartFunction(hPlugin, hFunc);
 			Call_PushCell(iParam1);
 			Call_PushStringEx(sVoteDisplayMessage, sizeof(sVoteDisplayMessage), SM_PARAM_STRING_COPY|SM_PARAM_STRING_UTF8, SM_PARAM_COPYBACK);
-			Call_Finish(iReturn);
+			Call_Finish();
 
 			NativeVotes_RedrawVoteTitle(sVoteDisplayMessage);
 
@@ -810,7 +803,6 @@ public int HandlerVote(NativeVote hVote, MenuAction iAction, int iParam1, int iP
 			{
 				char sVoteEndMsg[VOTEEND_MSG_SIZE];
 				
-				int iReturn;
 				Function hFunc;
 				Handle hPlugin = g_hTypeList.GetPlugin(g_iMixType);
 
@@ -830,7 +822,7 @@ public int HandlerVote(NativeVote hVote, MenuAction iAction, int iParam1, int iP
 					Call_StartFunction(hPlugin, hFunc);
 					Call_PushCell(iPlayer);
 					Call_PushStringEx(sVoteEndMsg, sizeof(sVoteEndMsg), SM_PARAM_STRING_COPY|SM_PARAM_STRING_UTF8, SM_PARAM_COPYBACK);
-					Call_Finish(iReturn);
+					Call_Finish();
 					
 					hVote.DisplayPassCustomToOne(iPlayer, sVoteEndMsg);
 				}
@@ -844,14 +836,57 @@ public int HandlerVote(NativeVote hVote, MenuAction iAction, int iParam1, int iP
 					SetFailState("Failed to get the function id of " ... FORWARD_IN_PROGRESS);
 				}
 
+				Action aReturn = Plugin_Continue;
+				
 				// call FORWARD_IN_PROGRESS
 				Call_StartFunction(hPlugin, hFunc);
-				Call_Finish(iReturn);
+				Call_Finish(aReturn);
+
+				if (aReturn == Plugin_Continue) {
+					EndMix();
+				}
 			}
 		}
 	}
 	
 	return 0;
+}
+
+void EndMix()
+{
+	char sMixName[MIX_NAME_SIZE];
+	g_hTypeList.GetName(g_iMixType, sMixName, MIX_NAME_SIZE);
+
+	Call_StartForward(g_fOnMixSuccess);
+	Call_PushString(sMixName);
+	Call_Finish();
+
+	g_iMixState = STATE_NONE;
+	g_iMixType = TYPE_NONE;
+}
+
+/**
+ * Interrupt if players are disconnected or the round has started.
+ * 
+ * @noreturn
+ */
+void AbortMix()
+{
+	if (g_hCurVote != null) {
+		g_hCurVote.Close(); 
+	}
+
+	RollbackPlayers();
+
+	char sMixName[MIX_NAME_SIZE];
+	g_hTypeList.GetName(g_iMixType, sMixName, MIX_NAME_SIZE);
+
+	Call_StartForward(g_fOnMixFailed);
+	Call_PushString(sMixName);
+	Call_Finish();
+
+	g_iMixState = STATE_NONE;
+	g_iMixType = TYPE_NONE;
 }
 
 /**
@@ -912,68 +947,6 @@ void SetAllClientSpectator()
 }
 
 /**
- * Sets the client team.
- * 
- * @param iClient     Client index
- * @param iTeam       Param description
- * @return            true if success
- */
-bool SetClientTeam(int iClient, int iTeam)
-{
-	if (!IS_VALID_CLIENT(iClient)) {
-		return false;
-	}
-
-	if (GetClientTeam(iClient) == iTeam) {
-		return true;
-	}
-
-	if (iTeam != TEAM_SURVIVOR) {
-		ChangeClientTeam(iClient, iTeam);
-		return true;
-	}
-	else if (FindSurvivorBot() > 0)
-	{
-		CheatCommand(iClient, "sb_takecontrol");
-		return true;
-	}
-
-	return false;
-}
-
-/**
- * Hack to execute cheat commands.
- * 
- * @noreturn
- */
-void CheatCommand(int iClient, const char[] sCmd, const char[] sArgs = "")
-{
-	int iFlags = GetCommandFlags(sCmd);
-	SetCommandFlags(sCmd, iFlags & ~FCVAR_CHEAT);
-	FakeClientCommand(iClient, "%s %s", sCmd, sArgs);
-	SetCommandFlags(sCmd, iFlags);
-}
-
-/**
- * Finds a free bot.
- * 
- * @return     Bot index or -1
- */
-int FindSurvivorBot()
-{
-	for (int iClient = 1; iClient <= MaxClients; iClient++)
-	{
-		if (!IsClientInGame(iClient) || !IsFakeClient(iClient) || !IS_SURVIVOR(iClient)) {
-			continue;
-		}
-
-		return iClient;
-	}
-
-	return -1;
-}
-
-/**
  * Checks if a string is empty.
  *
  * @return     true|false
@@ -1014,4 +987,8 @@ void CPrintExampleArguments(int iClient)
 		g_hTypeList.GetName(index, sMixName, MIX_NAME_SIZE);
 		CPrintToChat(iClient, "%T", "ARGUMENT_EXAMPLE", iClient, sMixName);
 	}
+}
+
+int InSecondHalfOfRound() {
+	return GameRules_GetProp("m_bInSecondHalfOfRound");
 }
