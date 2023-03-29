@@ -10,7 +10,7 @@
 5. ranthirdmap(随机第三方地图)
 6. rank(基于[VersusStat](https://github.com/TouchMe-Inc/l4d2_versus_stats)分配)
 
-##命令
+## 命令
 `!mix <type>` - 开始 <type> 类型的mix.
 
 `!unmix` / `!cancelmix` - 终端mix.
