@@ -19,8 +19,10 @@ enum struct Player{
     int versuswin;
     int versuslose;
 }
-
-Handle hPlayers;
+ArrayList hPlayers;
+ConVar temp_prp;
+Handle h_ixTimer;
+int iPlayersRP[MAXPLAYERS + 1] = {-1};
 #define IS_VALID_CLIENT(%1)     (%1 > 0 && %1 <= MaxClients)
 #define IS_REAL_CLIENT(%1)      (IsClientInGame(%1) && !IsFakeClient(%1))
 #define IS_SPECTATOR(%1)        (GetClientTeam(%1) == TEAM_SPECTATOR)
@@ -39,7 +41,7 @@ public Plugin myinfo = {
 #define TEAM_SURVIVOR           2 
 #define TEAM_INFECTED           3
 
-#define MIN_PLAYERS             8
+#define MIN_PLAYERS             1
 
 // Macros
 #define IS_REAL_CLIENT(%1)      (IsClientInGame(%1) && !IsFakeClient(%1))
@@ -70,6 +72,8 @@ void InitTranslations()
 public void OnPluginStart() {
     //InitTranslations();
     GetKeyinFile();
+    hPlayers = new ArrayList(sizeof(Player));
+    temp_prp = CreateConVar("itemp_prp", "-1", "TempVariable");
 }
 
 public void OnAllPluginsLoaded() {
@@ -83,23 +87,75 @@ public void GetVoteDisplayMessage(int iClient, char[] sTitle) {
 public void GetVoteEndMessage(int iClient, char[] sMsg) {
     Format(sMsg, VOTEEND_MSG_SIZE, "正在分队...", iClient);
 }
-
-/**
- * Starting the mix.
- * 
- * @noreturn
- */
-
-public void OnMixInProgress()
+int CheckingClientRPid = 0;
+bool checking = false;
+bool checkfinished = false;
+public Action TimerCallback(Handle timer, any data)
 {
-    hPlayers = CreateArray(sizeof(Player));
-
+    PrintToConsoleAll("TimerCallback Running");
+    // 开始
+    if (CheckingClientRPid == 0){
+        PrintToChatAll("{green}开始获取mix成员的统计信息!");
+        CheckingClientRPid++;
+    }
+    // 确定下一个要检查的id
+    while (CheckingClientRPid <= MaxClients){
+        if (checking) break;
+        if (!IsClientInGame(CheckingClientRPid) || !IsMixMember(CheckingClientRPid)) {
+            CheckingClientRPid++;
+        }
+        else
+        {
+            PrintToConsoleAll("CheckingClientRPid > %i", CheckingClientRPid);
+            break;
+        }
+    }
+    if (CheckingClientRPid > MaxClients) checkfinished = true;
+    if(!checking){
+        checking = true;
+        GetClientRP(CheckingClientRPid, hPlayers);
+    }
+    // 等待赋值完成
+    if (!checkfinished){
+        if (temp_prp.IntValue == -1){
+            return Plugin_Continue;
+        } else {
+            iPlayersRP[CheckingClientRPid] = temp_prp.IntValue;
+        }
+        CPrintToChatAll("{green} %N 的经验分为 %i!", CheckingClientRPid, iPlayersRP[CheckingClientRPid]);
+        //PrintToConsoleAll("iPlayersRP[%N] - %i", CheckingClientRPid, iPlayersRP[CheckingClientRPid]);
+        checking = false;
+        // 开始检查下一个
+        if (CheckingClientRPid <= MaxClients){
+            CheckingClientRPid++;
+            return Plugin_Continue;
+        }
+    }
+    // 所有人全部检查完成，开始分队
+    CPrintToChatAll("{green} 所有人全部检查完成，开始分队!");
+    CheckingClientRPid = 0;
+    checking = false;
+    checkfinished = false;
+    MixMembers();
+    KillTimer(h_ixTimer);
+    //return Plugin_Stop;
+}
+void OnMixFailed(const char[] sMixName){
+    KillTimer(h_ixTimer);
+}
+void MixMembers(){
     for (int iClient = 1; iClient <= MaxClients; iClient++)
     {
         if (!IsClientInGame(iClient) || !IsMixMember(iClient)) {
             continue;
         }
-        GetClientRP(iClient);
+        if (iPlayersRP[iClient] == -1) continue;
+        Player tempPlayer;
+        tempPlayer.id = iClient;
+        tempPlayer.rankpoint = iPlayersRP[iClient];
+        hPlayers.PushArray(tempPlayer);
+        //PrintToConsoleAll("hPlayers[%N] - %i", tempPlayer.id, tempPlayer.rankpoint);
+        PrintToConsoleAll("hPlayers.Length = %i", hPlayers.Length);
     }
     SortADTArrayCustom(hPlayers, SortByRank);
 
@@ -132,11 +188,11 @@ public void OnMixInProgress()
 
     // 定义一个变量sum，表示所有玩家的评分总和
     int sum = 0;
-    
+
     // 计算sum的值
     for (int i = 0; i < n; i++) {
         Player tempPlayer;
-        GetArrayArray(hPlayers, i, tempPlayer);
+        hPlayers.GetArray(i, tempPlayer);  //  adt_trie.inc GetArrayArray(hPlayers, i, tempPlayer);
         sum += tempPlayer.rankpoint;
     }
 
@@ -181,8 +237,11 @@ public void OnMixInProgress()
     // 根据path数组回溯找出最优的分配方案
     int i = n;
     int j = n/2;
-    PrintToConsoleAll("Mix成员 经验评分 = 2*对抗胜率*(0.75*真实游戏时长+TANK饼命中数)");
+    PrintToConsoleAll("Mix成员 经验评分 = 2*对抗胜率*(0.55*真实游戏时长+TANK饼命中数*每小时中饼数)");
     PrintToConsoleAll("-----------------------------------------------------------");
+    // z 3417
+    // p 3145
+
     while (i > 0 && j >= 0) {
         // 如果path[i][j]为true，表示第i个玩家分配给surv队伍
         if (path[i][j]) {
@@ -190,7 +249,7 @@ public void OnMixInProgress()
             Player tempPlayer;
             GetArrayArray(hPlayers, i-1, tempPlayer);
             surv[j-1] = tempPlayer.id;
-            PrintToConsoleAll("%N  %i=2*%.2f*(0.75*%i+%i)",tempPlayer.id, tempPlayer.winrounds ,tempPlayer.rankpoint, tempPlayer.gametime, tempPlayer.tankrocks);
+            //PrintToConsoleAll("%N  %i=2*%.2f*(0.75*%i+%i)",tempPlayer.id, tempPlayer.winrounds ,tempPlayer.rankpoint, tempPlayer.gametime, tempPlayer.tankrocks);
             surrankpoint = surrankpoint + tempPlayer.rankpoint;
             // 更新i和j的值
             i--;
@@ -202,7 +261,7 @@ public void OnMixInProgress()
             Player tempPlayer;
             GetArrayArray(hPlayers, i-1, tempPlayer);
             infs[n/2 - j - 1] = tempPlayer.id;
-            PrintToConsoleAll("%N  %i=2*%.2f*(0.75*%i+%i)",tempPlayer.id, tempPlayer.winrounds ,tempPlayer.rankpoint, tempPlayer.gametime, tempPlayer.tankrocks);
+            //PrintToConsoleAll("%N  %i=2*%.2f*(0.75*%i+%i)",tempPlayer.id, tempPlayer.winrounds ,tempPlayer.rankpoint, tempPlayer.gametime, tempPlayer.tankrocks);
             infrankpoint = infrankpoint + tempPlayer.rankpoint;
             // 更新i的值
             i--;
@@ -219,11 +278,24 @@ public void OnMixInProgress()
         SetClientTeam(infs[toinf], L4D2Team_Infected);
     }
     CPrintToChatAll("[{green}!{default}] {olive}队伍分配完毕!");
-    CPrintToChatAll("生还者经验分平均为 {blue}%i");
-    CPrintToChatAll("特感者经验分平均为 {red}%i");
+    CPrintToChatAll("生还者经验分平均为 {blue}%i", RoundToNearest(surrankpoint));
+    CPrintToChatAll("特感者经验分平均为 {red}%i", RoundToNearest(infrankpoint));
     CPrintToChatAll("[{green}!{default}] {olive}你可以查看控制台输出来获取每个人的经验信息!");
     // Required
     CallEndMix();
+
+}
+
+/**
+ * Starting the mix.
+ * 
+ * @noreturn
+ */
+
+public void OnMixInProgress()
+{
+    hPlayers.Clear();
+    CreateTimer(1.0, TimerCallback, 0, TIMER_REPEAT);
 }
 
 int SortByRank(int indexFirst, int indexSecond, Handle hArrayList, Handle hndl)
@@ -276,15 +348,16 @@ void GetKeyinFile()
 }
 
 /**
- * 获取玩家的游戏时间
- * 失败时，时长和丢饼数会默认为700/700
+ * 获取玩家的经验评分
+ * 一般来说，如果失败会返回1085分
  * 
  * @param iClient 玩家id
  * @noreturn
  */
-
-void GetClientRP(int iClient)
+int rankpt = -1;
+int GetClientRP(int iClient, ArrayList hPlayers)
 {
+    temp_prp.IntValue = -1;
     Player iPlayer;
     iPlayer.id = iClient;
     // 获取信息
@@ -295,16 +368,19 @@ void GetClientRP(int iClient)
         iPlayer.gametime = 700;
         iPlayer.tankrocks = 700;
         iPlayer.winrounds = 0.5;
-        float rp = 2.0 * iPlayer.winrounds * (0.75 * float(iPlayer.gametime) + float(iPlayer.tankrocks));
+        float rp = 2.0 * iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks));
         iPlayer.rankpoint = RoundToNearest(rp);
-        PushArrayArray(hPlayers, iPlayer);
-        PrintToConsoleAll("%N  %i=2*%.2f*(0.75*%i+%i)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
-        return;
+        rankpt = iPlayer.rankpoint;
+        PrintToConsoleAll("%N  %i=2*%.2f*(0.55*%i+%i*1)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
+        temp_prp.IntValue = rankpt;
+        return rankpt;
     }
     Format(URL,sizeof(URL),"%s&key=%s&steamid=%s",VALVEURL,VALVEKEY,id64);
     HTTPRequest request = new HTTPRequest(URL);
     request.Get(OnReceived, iClient);
     PrintToServer("%s",URL);
+    //PrintToConsoleAll("rankpt: %i", rankpt);
+    return temp_prp.IntValue;    
 }
 
 
@@ -318,9 +394,10 @@ public void OnReceived(HTTPResponse response, int id)
         iPlayer.gametime = 700;
         iPlayer.tankrocks = 700;
         iPlayer.winrounds = 0.5;
-        float rp = 2.0 * iPlayer.winrounds * (0.75 * float(iPlayer.gametime) + float(iPlayer.tankrocks));
+        float rp = 2.0 * iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks));
         iPlayer.rankpoint = RoundToNearest(rp);
-        PushArrayArray(hPlayers, iPlayer);   
+        temp_prp.IntValue = iPlayer.rankpoint;
+        PrintToConsoleAll("%N  %i=2*%f*(0.55*%i*+%i*1)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);\
         return;  
     }
     JSONObject json = view_as<JSONObject>(response.Data);
@@ -343,12 +420,14 @@ public void OnReceived(HTTPResponse response, int id)
     }
     iPlayer.versustotal = iPlayer.versuswin + iPlayer.versuslose;
     iPlayer.winrounds = float(iPlayer.versuswin) / float(iPlayer.versustotal);
-    float rp = 2.0 * iPlayer.winrounds * (0.75 * float(iPlayer.gametime) + float(iPlayer.tankrocks));
+    if(iPlayer.versustotal < 700){
+        iPlayer.winrounds = 0.5;
+    }
+    float rpm = float(iPlayer.tankrocks) / float(iPlayer.gametime);
+    float rp = 2.0 * iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks) * rpm);
     iPlayer.rankpoint = RoundToNearest(rp);
-    PushArrayArray(hPlayers, iPlayer);
-    PrintToConsoleAll("%N  %i=2*%f*(0.75*%i*+%i)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);\
-    delete json;
-    delete jsonarray;
+    temp_prp.IntValue = iPlayer.rankpoint;
+    PrintToConsoleAll("%N  %i=2*%f*(0.55*%i*+%i*%f)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks, rpm);\
 }
 
 /**
