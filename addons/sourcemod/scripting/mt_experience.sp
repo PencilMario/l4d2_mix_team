@@ -21,7 +21,7 @@ enum struct Player{
 }
 ArrayList hPlayers;
 ConVar temp_prp;
-Handle h_ixTimer;
+Handle h_mixTimer;
 int iPlayersRP[MAXPLAYERS + 1] = {-1};
 #define IS_VALID_CLIENT(%1)     (%1 > 0 && %1 <= MaxClients)
 #define IS_REAL_CLIENT(%1)      (IsClientInGame(%1) && !IsFakeClient(%1))
@@ -90,12 +90,12 @@ public void GetVoteEndMessage(int iClient, char[] sMsg) {
 int CheckingClientRPid = 0;
 bool checking = false;
 bool checkfinished = false;
-public Action TimerCallback(Handle timer, any data)
+public Action TimerCallback(Handle timer)
 {
     PrintToConsoleAll("TimerCallback Running");
     // 开始
     if (CheckingClientRPid == 0){
-        PrintToChatAll("{green}开始获取mix成员的统计信息!");
+        CPrintToChatAll("{green}开始获取mix成员的统计信息!");
         CheckingClientRPid++;
     }
     // 确定下一个要检查的id
@@ -113,7 +113,7 @@ public Action TimerCallback(Handle timer, any data)
     if (CheckingClientRPid > MaxClients) checkfinished = true;
     if(!checking){
         checking = true;
-        GetClientRP(CheckingClientRPid, hPlayers);
+        if (IsMixMember(CheckingClientRPid)) GetClientRP(CheckingClientRPid, hPlayers);
     }
     // 等待赋值完成
     if (!checkfinished){
@@ -137,11 +137,13 @@ public Action TimerCallback(Handle timer, any data)
     checking = false;
     checkfinished = false;
     MixMembers();
-    KillTimer(h_ixTimer);
-    //return Plugin_Stop;
+    KillTimer(h_mixTimer);
+    h_mixTimer = INVALID_HANDLE;
+    return Plugin_Stop;
 }
-void OnMixFailed(const char[] sMixName){
-    KillTimer(h_ixTimer);
+public void OnMixFailed(const char[] sMixName){
+    KillTimer(h_mixTimer);
+    h_mixTimer = INVALID_HANDLE;
 }
 void MixMembers(){
     for (int iClient = 1; iClient <= MaxClients; iClient++)
@@ -194,6 +196,7 @@ void MixMembers(){
         Player tempPlayer;
         hPlayers.GetArray(i, tempPlayer);  //  adt_trie.inc GetArrayArray(hPlayers, i, tempPlayer);
         sum += tempPlayer.rankpoint;
+        PrintToConsoleAll("sum %i", sum);
     }
 
     // 动态规划的状态转移方程为：
@@ -295,7 +298,7 @@ void MixMembers(){
 public void OnMixInProgress()
 {
     hPlayers.Clear();
-    CreateTimer(1.0, TimerCallback, 0, TIMER_REPEAT);
+    h_mixTimer = CreateTimer(1.0, TimerCallback, _, TIMER_FLAG_NO_MAPCHANGE|TIMER_REPEAT);
 }
 
 int SortByRank(int indexFirst, int indexSecond, Handle hArrayList, Handle hndl)
