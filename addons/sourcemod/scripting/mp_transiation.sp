@@ -1,4 +1,4 @@
-CANT_CHANGE_TEAM#pragma semicolon 1
+#pragma semicolon 1
 #pragma newdecls required
 
 #include <sourcemod>
