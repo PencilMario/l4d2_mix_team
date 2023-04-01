@@ -41,7 +41,7 @@ public Plugin myinfo = {
 #define TEAM_SURVIVOR           2 
 #define TEAM_INFECTED           3
 
-#define MIN_PLAYERS             1
+#define MIN_PLAYERS             8
 
 // Macros
 #define IS_REAL_CLIENT(%1)      (IsClientInGame(%1) && !IsFakeClient(%1))
@@ -162,57 +162,43 @@ void MixMembers(){
     //SortADTArrayCustom(hPlayers, SortByRank);
     hPlayers.SortCustom(SortByRank);
 
+    int isurv, iinfs = 0;
     int surv[4], infs[4];
-
-    int total_sum = 0;
-    int cinf, csur = 0;
-    for (int i = 0; i < hPlayers.Length; i++)
-    {
-        Player tempPlayer;
-        hPlayers.GetArray(i, tempPlayer);
-        total_sum += tempPlayer.rankpoint;
-    }
-
-    // 从hPlayers数组中依次取出玩家，并将其放入A1或A2中
-    int sum1 = 0;
-    int sum2 = 0;
-    for (int i = 0; i < hPlayers.Length; i++)
-    {
-        Player tempPlayer;
-        hPlayers.GetArray(i, tempPlayer);
-        if (cinf >= 4){
-            surv[csur] = tempPlayer.id;
-            csur++;
-            sum1 += tempPlayer.rankpoint;
-            continue;
-        }else if(csur >= 4)
-        {
-            infs[cinf] = tempPlayer.id;
-            csur++;
-            sum2 += tempPlayer.rankpoint;
-            continue;
-        }
-        if (sum1 + tempPlayer.rankpoint <= total_sum / 2)
-        {
-            surv[csur] = tempPlayer.id;
-            csur++;
-            sum1 += tempPlayer.rankpoint;
-        }
-        else
-        {
-            infs[cinf] = tempPlayer.id;
-            csur++;
-            sum2 += tempPlayer.rankpoint;
-        }
-    }
-
     int surrankpoint, infrankpoint = 0;
+    
+    // 4400 3100 1230 1055 970 742 319 299
+    for (int n = 0; n < hPlayers.Length; n++){
+        Player tempPlayer;
+        hPlayers.GetArray(i, tempPlayer);
+        if (surrankpoint >= infrankpoint){
+            if (iinfs >= 4){
+                // inf is full
+                surv[iinfs] = tempPlayer.id;
+                isurv++;
+                surrankpoint += tempPlayer.rankpoint;
+            }
+            // to inf
+            infs[iinfs] = tempPlayer.id;
+            iinfs++;
+            infrankpoint += tempPlayer.rankpoint;
+        }
+        else {
+            if (isurv >= 4){
+                // surv is full
+                infs[iinfs] = tempPlayer.id;
+                iinfs++;
+                infrankpoint += tempPlayer.rankpoint;
+            }
+            //to sur
+            surv[iinfs] = tempPlayer.id;
+            isurv++;
+            surrankpoint += tempPlayer.rankpoint;
+        }
+    }
 
     PrintToConsoleAll("Mix成员 经验评分 = 2*对抗胜率*(0.55*真实游戏时长+TANK饼命中数*每小时中饼数)");
     PrintToConsoleAll("-----------------------------------------------------------");
 
-    surrankpoint = sum1;
-    infrankpoint = sum2;
 
     // 分配队伍
     for(int tosurv = 0; tosurv < sizeof(surv); tosurv++){
@@ -316,6 +302,7 @@ int GetClientRP(int iClient, ArrayList hPlayers)
         iPlayer.rankpoint = RoundToNearest(rp);
         rankpt = iPlayer.rankpoint;
         PrintToConsoleAll("%N(获取失败)  %i=2*%.2f*(0.55*%i+%i*1)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
+        CPrintToChatAll("{red} %N 无法获取Steam64位ID，将以1085分参与mix", iClient);
         temp_prp.IntValue = rankpt;
         return rankpt;
     }
@@ -325,7 +312,6 @@ int GetClientRP(int iClient, ArrayList hPlayers)
     PrintToServer("%s",URL);
     return temp_prp.IntValue;    
 }
-
 
 public void OnReceived(HTTPResponse response, int id)
 {
@@ -340,6 +326,7 @@ public void OnReceived(HTTPResponse response, int id)
         float rp = 2.0 * iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks));
         iPlayer.rankpoint = RoundToNearest(rp);
         temp_prp.IntValue = iPlayer.rankpoint;
+        CPrintToChatAll("{red} %N 获取游戏信息失败，将以1085分参与mix", id);
         PrintToConsoleAll("%N(获取失败)  %i=2*%f*(0.55*%i*+%i*1)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);\
         return;  
     }
@@ -356,7 +343,7 @@ public void OnReceived(HTTPResponse response, int id)
         float rp = 2.0 * iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks));
         iPlayer.rankpoint = RoundToNearest(rp);
         temp_prp.IntValue = iPlayer.rankpoint;
-        CPrintToChatAll("{red} %N 未公开游戏游戏详情，将以1085分参与mix");
+        CPrintToChatAll("{red} %N 未公开游戏详情，将以1085分参与mix", id);
         PrintToConsoleAll("%N(获取失败)  %i=2*%f*(0.55*%i*+%i*1)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);\
         return;  
     }
