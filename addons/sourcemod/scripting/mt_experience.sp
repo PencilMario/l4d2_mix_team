@@ -19,10 +19,12 @@ enum struct Player{
     int versuswin;
     int versuslose;
 }
-ArrayList hPlayers;
+ArrayList team1, team2, a_players;
+Player tempPlayer;
 ConVar temp_prp;
 Handle h_mixTimer;
-int iPlayersRP[MAXPLAYERS + 1] = {-1};
+int prps[MAXPLAYERS + 1] = {-1};
+int diffs;
 #define IS_VALID_CLIENT(%1)     (%1 > 0 && %1 <= MaxClients)
 #define IS_REAL_CLIENT(%1)      (IsClientInGame(%1) && !IsFakeClient(%1))
 #define IS_SPECTATOR(%1)        (GetClientTeam(%1) == TEAM_SPECTATOR)
@@ -72,8 +74,17 @@ void InitTranslations()
 public void OnPluginStart() {
     //InitTranslations();
     GetKeyinFile();
-    hPlayers = new ArrayList(sizeof(Player));
+    a_players = new ArrayList(sizeof(Player));
     temp_prp = CreateConVar("itemp_prp", "-1", "TempVariable");
+    /*for (int i = 0; i < 8; i++){
+        Player P1;
+        P1.id = i;
+        prps[i] = GetRandomInt(100, 10000);
+        a_players.PushArray(P1);
+        PrintToServer("Set: %i - %i", P1.id, prps[i]);
+    }
+    min_diff();
+    print_result();*/
 }
 
 public void OnAllPluginsLoaded() {
@@ -114,7 +125,7 @@ public Action TimerCallback(Handle timer)
     
     if(!checking){
         checking = true;
-        GetClientRP(CheckingClientRPid, hPlayers);
+        GetClientRP(CheckingClientRPid);
     }
     if (CheckingClientRPid > MaxClients) checkfinished = true;
     // 等待赋值完成
@@ -122,10 +133,10 @@ public Action TimerCallback(Handle timer)
         if (temp_prp.IntValue == -1){
             return Plugin_Continue;
         } else {
-            iPlayersRP[CheckingClientRPid] = temp_prp.IntValue;
+            prps[CheckingClientRPid] = temp_prp.IntValue;
             checking = false;
         }
-        CPrintToChatAll("{green}%N 的经验分为 %i!", CheckingClientRPid, iPlayersRP[CheckingClientRPid]);
+        CPrintToChatAll("{green}%N 的经验分为 %i!", CheckingClientRPid, prps[CheckingClientRPid]);
         checking = false;
         // 开始检查下一个
         CheckingClientRPid++;
@@ -153,63 +164,35 @@ void MixMembers(){
         if (!IsClientInGame(iClient) || !IsMixMember(iClient)) {
             continue;
         }
-        if (iPlayersRP[iClient] == -1) continue;
-        Player tempPlayer;
+        if (prps[iClient] == -1) continue;
         tempPlayer.id = iClient;
-        tempPlayer.rankpoint = iPlayersRP[iClient];
-        hPlayers.PushArray(tempPlayer);
+        tempPlayer.rankpoint = prps[iClient];
+        a_players.PushArray(tempPlayer);
     }
-    //SortADTArrayCustom(hPlayers, SortByRank);
-    hPlayers.SortCustom(SortByRank);
-
-    int isurv, iinfs = 0;
-    int surv[4], infs[4];
+    //SortADTArrayCustom(a_players, SortByRank);
+    a_players.SortCustom(SortByRank);
     int surrankpoint, infrankpoint = 0;
-    
-    // 4400 3100 1230 1055 970 742 319 299
-    for (int n = 0; n < hPlayers.Length; n++){
-        Player tempPlayer;
-        hPlayers.GetArray(i, tempPlayer);
-        if (surrankpoint >= infrankpoint){
-            if (iinfs >= 4){
-                // inf is full
-                surv[iinfs] = tempPlayer.id;
-                isurv++;
-                surrankpoint += tempPlayer.rankpoint;
-            }
-            // to inf
-            infs[iinfs] = tempPlayer.id;
-            iinfs++;
-            infrankpoint += tempPlayer.rankpoint;
-        }
-        else {
-            if (isurv >= 4){
-                // surv is full
-                infs[iinfs] = tempPlayer.id;
-                iinfs++;
-                infrankpoint += tempPlayer.rankpoint;
-            }
-            //to sur
-            surv[iinfs] = tempPlayer.id;
-            isurv++;
-            surrankpoint += tempPlayer.rankpoint;
-        }
-    }
+
+    min_diff();
 
     PrintToConsoleAll("Mix成员 经验评分 = 2*对抗胜率*(0.55*真实游戏时长+TANK饼命中数*每小时中饼数)");
     PrintToConsoleAll("-----------------------------------------------------------");
 
+    for (int i = 0; i < team1.Length; i++)
+    {
+        team1.GetArray(i, tempPlayer);
+        if (IsMixMember(tempPlayer.id)) SetClientTeam(tempPlayer.id, L4D2Team_Survivor);
+    }
+    for (int i = 0; i < team2.Length; i++)
+    {
+        team2.GetArray(i, tempPlayer);
+        if (IsMixMember(tempPlayer.id)) SetClientTeam(tempPlayer.id, L4D2Team_Survivor);
+    }
 
-    // 分配队伍
-    for(int tosurv = 0; tosurv < sizeof(surv); tosurv++){
-        if (IsMixMember(surv[tosurv])) SetClientTeam(surv[tosurv], L4D2Team_Survivor);
-    }
-    for(int toinf = 0; toinf < sizeof(infs); toinf++){
-        if (IsMixMember(infs[toinf])) SetClientTeam(infs[toinf], L4D2Team_Infected);
-    }
     CPrintToChatAll("[{green}!{default}] {olive}队伍分配完毕!");
-    CPrintToChatAll("生还者经验分为 {blue}%i", surrankpoint);
-    CPrintToChatAll("特感者经验分为 {red}%i", infrankpoint);
+    CPrintToChatAll("生还方经验分为 {blue}%i", surrankpoint);
+    CPrintToChatAll("特感方经验分为 {red}%i", infrankpoint);
+    CPrintToChatAll("双方分差 {olive}%i", diffs);
     CPrintToChatAll("[{green}!{default}] {olive}你可以查看控制台输出来获取每个人的经验信息!");
 }
 
@@ -221,7 +204,7 @@ void MixMembers(){
 
 public void OnMixInProgress()
 {
-    hPlayers.Clear();
+    a_players.Clear();
     CheckingClientRPid = 0;
     checking = false;
     checkfinished = false;
@@ -235,11 +218,11 @@ int SortByRank(int indexFirst, int indexSecond, Handle hArrayList, Handle hndl)
     GetArrayArray(hArrayList, indexFirst, tPlayerFirst);
     GetArrayArray(hArrayList, indexSecond, tPlayerSecond);
 
-    if (tPlayerFirst.rankpoint < tPlayerSecond.rankpoint) {
+    if (prps[tPlayerFirst.id] < prps[tPlayerSecond.id]) {
         return -1;
     }
 
-    if (tPlayerFirst.rankpoint > tPlayerSecond.rankpoint) {
+    if (prps[tPlayerFirst.id] > prps[tPlayerSecond.id]) {
         return 1;
     }
 
@@ -247,10 +230,127 @@ int SortByRank(int indexFirst, int indexSecond, Handle hArrayList, Handle hndl)
 }
 
 int abs(int value){
-    if (value < 0){
-        value = 0 - value;
+    if (value < 0) return -value;
+    return value;   
+}
+// 定义一个函数，用来计算两个数组的和的差值
+int diff_sum(ArrayList array1, ArrayList array2)
+{
+    // 初始化两个数组的和
+    int sum1 = 0;
+    int sum2 = 0;
+    // 遍历第一个数组，累加元素
+    for (int i = 0; i < array1.Length; i++)
+    {
+        array1.GetArray(i, tempPlayer);
+        sum1 += prps[tempPlayer.id];
     }
-    return value;
+    // 遍历第二个数组，累加元素
+    for (int i = 0; i < array2.Length; i++)
+    {
+        array2.GetArray(i, tempPlayer);
+        sum2 += prps[tempPlayer.id];
+    }
+    // 返回两个数组的和的绝对值差
+    return abs(sum1 - sum2);
+}
+
+// 定义一个函数，用来打印结果
+void print_result()
+{
+    // 打印最小差值
+    PrintToServer("The minimum difference is %d.", diffs);
+    // 打印第一个分组
+    PrintToServer("The first group is:");
+    for (int i = 0; i < team1.Length; i++)
+    {
+        team1.GetArray(i, tempPlayer);
+        PrintToServer("%i - %i", tempPlayer.id, prps[tempPlayer.id]);
+    }
+    // 打印第二个分组
+    PrintToServer("The second group is:");
+    for (int i = 0; i < team2.Length; i++)
+    {
+        team2.GetArray(i, tempPlayer);
+        PrintToServer("%i - %i", tempPlayer.id, prps[tempPlayer.id]);
+    }
+}
+
+// 定义一个函数，用来找出所有可能的分组方式，并返回最小的差值和对应的分组
+void min_diff()
+{
+    // 对数组进行排序
+    a_players.SortCustom(SortByRank);
+    // 初始化最小差值和分组
+    diffs = 2147483647; // 最大的整数值
+    //min_group = null;
+    // 遍历所有可能的分组方式
+    for (int i = 0; i < a_players.Length - 3; i++)
+    {
+        for (int j = i + 1; j < a_players.Length - 2; j++)
+        {
+            for (int k = j + 1; k < a_players.Length - 1; k++)
+            {
+                for (int l = k + 1; l < a_players.Length; l++)
+                {
+                    // 将数组分成两个子数组
+                    ArrayList group1 = new ArrayList();// = {array[i], array[j], array[k], array[l]};
+                    group1.Resize(4);
+                    a_players.GetArray(i, tempPlayer);  
+                    group1.SetArray(0,tempPlayer);
+                    a_players.GetArray(j, tempPlayer);  
+                    group1.SetArray(1,tempPlayer);
+                    a_players.GetArray(k, tempPlayer);  
+                    group1.SetArray(2,tempPlayer);
+                    a_players.GetArray(l, tempPlayer);  
+                    group1.SetArray(3,tempPlayer);
+
+                    int m, n, o, p;
+                    for (m=0; m<a_players.Length; m++){
+                        if (m != i && m != j && m != k && m != l) break;
+                    }
+                    for (n=0; n<a_players.Length; n++){
+                        if (n != i && n != j && n != k && n != l && n != m) break;
+                    }
+                    for (o=0; o<a_players.Length; o++){
+                        if (o != i && o != j && o != k && o != l && o != m && o != n) break;
+                    }
+                    for (p=0; p<a_players.Length; p++){
+                        if (p != i && p != j && p != k && p != l && p != m && p != n && p != o) break;
+                    }                    
+                    
+                    ArrayList group2 = new ArrayList();
+                    group2.Resize(4);
+                    a_players.GetArray(m, tempPlayer);  
+                    group2.SetArray(0,tempPlayer);
+                    a_players.GetArray(n, tempPlayer);  
+                    group2.SetArray(1,tempPlayer);
+                    a_players.GetArray(o, tempPlayer);  
+                    group2.SetArray(2,tempPlayer);
+                    a_players.GetArray(p, tempPlayer);  
+                    group2.SetArray(3,tempPlayer);
+
+                    int diff = diff_sum(group1, group2);
+                    // 如果差值小于当前最小差值，更新最小差值和分组
+                    if (diff < diffs)
+                    {
+                        diffs = diff;
+                        if (team1 != INVALID_HANDLE){
+                            team1.Resize(0);
+                        }
+                        if (team2 != INVALID_HANDLE){
+                            team1.Resize(0);
+                        }
+                        team1 = group1.Clone();
+                        team2 = group2.Clone();
+                    }
+                    delete group1;
+                    delete group2;
+
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -285,7 +385,7 @@ void GetKeyinFile()
  * @noreturn
  */
 int rankpt = -1;
-int GetClientRP(int iClient, ArrayList hPlayers)
+int GetClientRP(int iClient)
 {
     temp_prp.IntValue = -1;
     Player iPlayer;
