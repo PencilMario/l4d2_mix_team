@@ -18,10 +18,13 @@ enum struct Player{
     int versustotal;
     int versuswin;
     int versuslose;
+    int smgkills;
+    int shotgunkills;
 }
 ArrayList team1, team2, a_players;
 Player tempPlayer;
 ConVar temp_prp;
+ConVar not_allow_npublicinfo;
 Handle h_mixTimer;
 int prps[MAXPLAYERS + 1] = {-1};
 int diffs;
@@ -31,9 +34,9 @@ int diffs;
 #define IS_SURVIVOR(%1)         (GetClientTeam(%1) == TEAM_SURVIVOR)
 
 public Plugin myinfo = { 
-    name = "MixTeamTime",
+    name = "MixTeamExperience",
     author = "SirP",
-    description = "Adds mix team by time",
+    description = "Adds mix team by game experience",
     version = "1.0"
 };
 
@@ -43,7 +46,7 @@ public Plugin myinfo = {
 #define TEAM_SURVIVOR           2 
 #define TEAM_INFECTED           3
 
-#define MIN_PLAYERS             8
+#define MIN_PLAYERS             1
 
 // Macros
 #define IS_REAL_CLIENT(%1)      (IsClientInGame(%1) && !IsFakeClient(%1))
@@ -76,6 +79,7 @@ public void OnPluginStart() {
     GetKeyinFile();
     a_players = new ArrayList(sizeof(Player));
     temp_prp = CreateConVar("itemp_prp", "-1", "TempVariable");
+    not_allow_npublicinfo = CreateConVar("sm_mix_allow_hide_gameinfo", "1", "如果有玩家隐藏游戏信息，mix是否继续分队。隐藏的玩家将按一个固定值计算。1 - 继续分队。0 - 阻止继续");
     /*for (int i = 0; i < 8; i++){
         Player P1;
         P1.id = i;
@@ -156,6 +160,7 @@ public Action TimerCallback(Handle timer)
 public void OnMixFailed(const char[] sMixName){
     KillTimer(h_mixTimer);
     h_mixTimer = INVALID_HANDLE;
+    CallCancelMix();
 }
 void MixMembers(){
     // 构建player数组
@@ -175,18 +180,20 @@ void MixMembers(){
 
     min_diff();
 
-    PrintToConsoleAll("Mix成员 经验评分 = 2*对抗胜率*(0.55*真实游戏时长+TANK饼命中数*每小时中饼数)");
+    PrintToConsoleAll("Mix成员 经验评分 = 对抗胜率*(0.55*真实游戏时长+TANK饼命中数*每小时中饼数+T1武器击杀数*0.005*(1+单喷击杀对T1武器击杀占比))");
     PrintToConsoleAll("-----------------------------------------------------------");
 
     for (int i = 0; i < team1.Length; i++)
     {
         team1.GetArray(i, tempPlayer);
         if (IsMixMember(tempPlayer.id)) SetClientTeam(tempPlayer.id, L4D2Team_Survivor);
+        surrankpoint += prps[tempPlayer.id];
     }
     for (int i = 0; i < team2.Length; i++)
     {
         team2.GetArray(i, tempPlayer);
-        if (IsMixMember(tempPlayer.id)) SetClientTeam(tempPlayer.id, L4D2Team_Survivor);
+        if (IsMixMember(tempPlayer.id)) SetClientTeam(tempPlayer.id, L4D2Team_Infected);
+        infrankpoint += prps[tempPlayer.id];
     }
 
     CPrintToChatAll("[{green}!{default}] {olive}队伍分配完毕!");
@@ -398,12 +405,12 @@ int GetClientRP(int iClient)
         iPlayer.gametime = 700;
         iPlayer.tankrocks = 700;
         iPlayer.winrounds = 0.5;
-        float rp = 2.0 * iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks));
+        float rp = iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks) + 
+            100000.0*0.005*1.35);
         iPlayer.rankpoint = RoundToNearest(rp);
-        rankpt = iPlayer.rankpoint;
-        PrintToConsoleAll("%N(获取失败)  %i=2*%.2f*(0.55*%i+%i*1)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
-        CPrintToChatAll("{red} %N 无法获取Steam64位ID，将以1085分参与mix", iClient);
-        temp_prp.IntValue = rankpt;
+        temp_prp.IntValue = iPlayer.rankpoint;
+        PrintToConsoleAll("%N(失败)  %i=%f*(0.55*%i*+%i*1+100000*0.005*(1+0.35))",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
+        CPrintToChatAll("{red} %N 无法获取Steam64位ID，将以%i分参与mix", iClient, temp_prp.IntValue);
         return rankpt;
     }
     Format(URL,sizeof(URL),"%s&key=%s&steamid=%s",VALVEURL,VALVEKEY,id64);
@@ -423,11 +430,12 @@ public void OnReceived(HTTPResponse response, int id)
         iPlayer.gametime = 700;
         iPlayer.tankrocks = 700;
         iPlayer.winrounds = 0.5;
-        float rp = 2.0 * iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks));
+        float rp = iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks) + 
+            100000.0*0.005*1.35);
         iPlayer.rankpoint = RoundToNearest(rp);
         temp_prp.IntValue = iPlayer.rankpoint;
-        CPrintToChatAll("{red} %N 获取游戏信息失败，将以1085分参与mix", id);
-        PrintToConsoleAll("%N(获取失败)  %i=2*%f*(0.55*%i*+%i*1)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);\
+        CPrintToChatAll("{red} %N 获取游戏信息失败，将以%i分参与mix", id, temp_prp.IntValue);
+        PrintToConsoleAll("%N(失败)  %i=%f*(0.55*%i*+%i*1+100000*0.005*(1+0.35))",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
         return;  
     }
     JSONObject json = view_as<JSONObject>(response.Data);
@@ -440,12 +448,18 @@ public void OnReceived(HTTPResponse response, int id)
         iPlayer.gametime = 700;
         iPlayer.tankrocks = 700;
         iPlayer.winrounds = 0.5;
-        float rp = 2.0 * iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks));
+        float rp = iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks) + 
+            100000.0*0.005*1.35);
         iPlayer.rankpoint = RoundToNearest(rp);
         temp_prp.IntValue = iPlayer.rankpoint;
-        CPrintToChatAll("{red} %N 未公开游戏详情，将以1085分参与mix", id);
-        PrintToConsoleAll("%N(获取失败)  %i=2*%f*(0.55*%i*+%i*1)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);\
-        return;  
+        if (not_allow_npublicinfo.IntValue > 0){
+            CPrintToChatAll("{red}%N 未公开游戏详情，将以%i分参与mix", id, temp_prp.IntValue);
+            PrintToConsoleAll("%N  %i=%f*(0.55*%i*+%i*1+100000*0.005*(1+0.35))",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
+            return;  
+        }else {
+            CPrintToChatAll("{red}%N 未公开游戏详情，MIX停止。\n{default}[{green}!{default}] 请确保所有mix成员都已公开游戏信息。", id);
+            OnMixFailed("");
+        }
     }
     JSONArray jsonarray=view_as<JSONArray>(json.Get("stats"));
     for(int j=0;j<jsonarray.Length;j++)
@@ -461,6 +475,14 @@ public void OnReceived(HTTPResponse response, int id)
             iPlayer.versuslose = json.GetInt("value");
         }else if(StrEqual(buff,"Stat.GamesWon.Versus")){
             iPlayer.versuswin = json.GetInt("value");
+        }else if(StrEqual(buff,"Stat.smg_silenced.Kills.Total")){
+            iPlayer.smgkills += json.GetInt("value");
+        }else if(StrEqual(buff,"Stat.smg.Kills.Total")){
+            iPlayer.smgkills += json.GetInt("value");
+        }else if(StrEqual(buff,"Stat.shotgun_chrome.Kills.Total")){
+            iPlayer.shotgunkills += json.GetInt("value");
+        }else if(StrEqual(buff,"Stat.pumpshotgun.Kills.Total")){
+            iPlayer.shotgunkills += json.GetInt("value");
         }
     }
     iPlayer.versustotal = iPlayer.versuswin + iPlayer.versuslose;
@@ -468,9 +490,14 @@ public void OnReceived(HTTPResponse response, int id)
     if(iPlayer.versustotal < 700){
         iPlayer.winrounds = 0.5;
     }
+    int killtotal = iPlayer.smgkills + iPlayer.shotgunkills;
+    float shotgunperc = float(iPlayer.shotgunkills) / float(killtotal);
     float rpm = float(iPlayer.tankrocks) / float(iPlayer.gametime);
-    float rp = 2.0 * iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks) * rpm);
+    float rp = iPlayer.winrounds * (0.55 * float(iPlayer.gametime) + float(iPlayer.tankrocks) * rpm + 
+        (killtotal) * 0.005 * (1.0 + shotgunperc));
+
     iPlayer.rankpoint = RoundToNearest(rp);
     temp_prp.IntValue = iPlayer.rankpoint;
-    PrintToConsoleAll("%N  %i=2*%f*(0.55*%i*+%i*%f)",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks, rpm);\
+    PrintToConsoleAll("%N  %i=%f*(0.55*%i*+%i*%f+%i*0.005*(1+%f))",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks, rpm,
+        killtotal, shotgunperc);
 }
