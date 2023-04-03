@@ -41,12 +41,12 @@ public Plugin myinfo = {
 };
 
 
-#define TRANSLATIONS            "mt_team.phrases"
+#define TRANSLATIONS            "mt_experience.phrases"
 
 #define TEAM_SURVIVOR           2 
 #define TEAM_INFECTED           3
 
-#define MIN_PLAYERS             1
+#define MIN_PLAYERS             8
 
 // Macros
 #define IS_REAL_CLIENT(%1)      (IsClientInGame(%1) && !IsFakeClient(%1))
@@ -75,20 +75,11 @@ void InitTranslations()
  * @noreturn
  */
 public void OnPluginStart() {
-    //InitTranslations();
+    InitTranslations();
     GetKeyinFile();
     a_players = new ArrayList(sizeof(Player));
     temp_prp = CreateConVar("itemp_prp", "-1", "TempVariable");
     not_allow_npublicinfo = CreateConVar("sm_mix_allow_hide_gameinfo", "1", "如果有玩家隐藏游戏信息，mix是否继续分队。隐藏的玩家将按一个固定值计算。1 - 继续分队。0 - 阻止继续");
-    /*for (int i = 0; i < 8; i++){
-        Player P1;
-        P1.id = i;
-        prps[i] = GetRandomInt(100, 10000);
-        a_players.PushArray(P1);
-        PrintToServer("Set: %i - %i", P1.id, prps[i]);
-    }
-    min_diff();
-    print_result();*/
 }
 
 public void OnAllPluginsLoaded() {
@@ -96,12 +87,13 @@ public void OnAllPluginsLoaded() {
 }
 
 public void GetVoteDisplayMessage(int iClient, char[] sTitle) {
-    Format(sTitle, DISPLAY_MSG_SIZE, "开始mix（根据经验分队）", iClient);
+    Format(sTitle, DISPLAY_MSG_SIZE, "%T", "VOTE_DISPLAY_MSG", iClient);
 }
 
 public void GetVoteEndMessage(int iClient, char[] sMsg) {
-    Format(sMsg, VOTEEND_MSG_SIZE, "正在分队...", iClient);
+    Format(sMsg, VOTEEND_MSG_SIZE, "%T", "VOTE_END_MSG", iClient);
 }
+
 int CheckingClientRPid = 0;
 bool checking = false;
 bool checkfinished = false;
@@ -110,7 +102,7 @@ public Action TimerCallback(Handle timer)
     //PrintToConsoleAll("TimerCallback Running - %i CheckingClientRPid", CheckingClientRPid);
     // 开始
     if (CheckingClientRPid == 0){
-        CPrintToChatAll("{green}开始获取mix成员的统计信息!");
+        CPrintToChatAll("%t", "START_GET_INFO");
         CheckingClientRPid++;
     }
     // 确定下一个要检查的id
@@ -140,7 +132,7 @@ public Action TimerCallback(Handle timer)
             prps[CheckingClientRPid] = temp_prp.IntValue;
             checking = false;
         }
-        CPrintToChatAll("{green}%N 的经验分为 %i!", CheckingClientRPid, prps[CheckingClientRPid]);
+        CPrintToChatAll("%t", "SHOW_ONE_RP", CheckingClientRPid, prps[CheckingClientRPid]);
         checking = false;
         // 开始检查下一个
         CheckingClientRPid++;
@@ -149,7 +141,7 @@ public Action TimerCallback(Handle timer)
         }
     }
     
-    CPrintToChatAll("{green}所有人全部检查完成，开始分队!");
+    CPrintToChatAll("%t", "CHECK_DONE");
     MixMembers();
     CheckingClientRPid = 0;
     checking = false;
@@ -162,6 +154,8 @@ public void OnMixFailed(const char[] sMixName){
     h_mixTimer = INVALID_HANDLE;
     CallCancelMix();
 }
+
+int datas[3];
 void MixMembers(){
     // 构建player数组
     for (int iClient = 1; iClient <= MaxClients; iClient++)
@@ -180,7 +174,7 @@ void MixMembers(){
 
     min_diff();
 
-    PrintToConsoleAll("Mix成员 经验评分 = 对抗胜率*(0.55*真实游戏时长+TANK饼命中数*每小时中饼数+T1武器击杀数*0.005*(1+单喷击杀对T1武器击杀占比))");
+    PrintToConsoleAll("%t", "EXP_EQUATION");
     PrintToConsoleAll("-----------------------------------------------------------");
 
     for (int i = 0; i < team1.Length; i++)
@@ -195,12 +189,10 @@ void MixMembers(){
         if (IsMixMember(tempPlayer.id)) SetClientTeam(tempPlayer.id, L4D2Team_Infected);
         infrankpoint += prps[tempPlayer.id];
     }
-
-    CPrintToChatAll("[{green}!{default}] {olive}队伍分配完毕!");
-    CPrintToChatAll("生还方经验分为 {blue}%i", surrankpoint);
-    CPrintToChatAll("特感方经验分为 {red}%i", infrankpoint);
-    CPrintToChatAll("双方分差 {olive}%i", diffs);
-    CPrintToChatAll("[{green}!{default}] {olive}你可以查看控制台输出来获取每个人的经验信息!");
+    datas[0] = surrankpoint;
+    datas[1] = infrankpoint;
+    datas[2] = diffs;
+    CreateTimer(2.0, PrintResult);
 }
 
 /**
@@ -263,24 +255,14 @@ int diff_sum(ArrayList array1, ArrayList array2)
 }
 
 // 定义一个函数，用来打印结果
-void print_result()
+public Action PrintResult(Handle timer)
 {
-    // 打印最小差值
-    PrintToServer("The minimum difference is %d.", diffs);
-    // 打印第一个分组
-    PrintToServer("The first group is:");
-    for (int i = 0; i < team1.Length; i++)
-    {
-        team1.GetArray(i, tempPlayer);
-        PrintToServer("%i - %i", tempPlayer.id, prps[tempPlayer.id]);
-    }
-    // 打印第二个分组
-    PrintToServer("The second group is:");
-    for (int i = 0; i < team2.Length; i++)
-    {
-        team2.GetArray(i, tempPlayer);
-        PrintToServer("%i - %i", tempPlayer.id, prps[tempPlayer.id]);
-    }
+    CPrintToChatAll("%t", "MIX_FINISH");
+    CPrintToChatAll("%t", "SUR_TOTAL_RP", datas[0]);
+    CPrintToChatAll("%t", "INF_TOTAL_RP", datas[1]);
+    CPrintToChatAll("%t", "DIFF_RP", datas[2]);
+    CPrintToChatAll("%t", "HINT_CONSOLE");
+    return Plugin_Stop;
 }
 
 // 定义一个函数，用来找出所有可能的分组方式，并返回最小的差值和对应的分组
@@ -409,8 +391,8 @@ int GetClientRP(int iClient)
             100000.0*0.005*1.35);
         iPlayer.rankpoint = RoundToNearest(rp);
         temp_prp.IntValue = iPlayer.rankpoint;
-        PrintToConsoleAll("%N(失败)  %i=%f*(0.55*%i*+%i*1+100000*0.005*(1+0.35))",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
-        CPrintToChatAll("{red} %N 无法获取Steam64位ID，将以%i分参与mix", iClient, temp_prp.IntValue);
+        PrintToConsoleAll("%N(X)  %i=%f*(0.55*%i*+%i*1+100000*0.005*(1+0.35))",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
+        CPrintToChatAll("%t", "FAIL_CANT_GET_ID", iClient, temp_prp.IntValue);
         return rankpt;
     }
     Format(URL,sizeof(URL),"%s&key=%s&steamid=%s",VALVEURL,VALVEKEY,id64);
@@ -434,8 +416,8 @@ public void OnReceived(HTTPResponse response, int id)
             100000.0*0.005*1.35);
         iPlayer.rankpoint = RoundToNearest(rp);
         temp_prp.IntValue = iPlayer.rankpoint;
-        CPrintToChatAll("{red} %N 获取游戏信息失败，将以%i分参与mix", id, temp_prp.IntValue);
-        PrintToConsoleAll("%N(失败)  %i=%f*(0.55*%i*+%i*1+100000*0.005*(1+0.35))",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
+        CPrintToChatAll("%t", "FAIL_CANT_GET_INFO", id, temp_prp.IntValue);
+        PrintToConsoleAll("%N(X)  %i=%f*(0.55*%i*+%i*1+100000*0.005*(1+0.35))",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
         return;  
     }
     JSONObject json = view_as<JSONObject>(response.Data);
@@ -453,11 +435,11 @@ public void OnReceived(HTTPResponse response, int id)
         iPlayer.rankpoint = RoundToNearest(rp);
         temp_prp.IntValue = iPlayer.rankpoint;
         if (not_allow_npublicinfo.IntValue > 0){
-            CPrintToChatAll("{red}%N 未公开游戏详情，将以%i分参与mix", id, temp_prp.IntValue);
+            CPrintToChatAll("%t", "FAIL_PLAYER_HIDE_INFO_CONTINUE", id, temp_prp.IntValue);
             PrintToConsoleAll("%N  %i=%f*(0.55*%i*+%i*1+100000*0.005*(1+0.35))",iPlayer.id, iPlayer.rankpoint, iPlayer.winrounds ,iPlayer.gametime, iPlayer.tankrocks);
             return;  
         }else {
-            CPrintToChatAll("{red}%N 未公开游戏详情，MIX停止。\n{default}[{green}!{default}] 请确保所有mix成员都已公开游戏信息。", id);
+            CPrintToChatAll("%t", "FAIL_PLAYER_HIDE_INFO_STOP", id);
             OnMixFailed("");
         }
     }
