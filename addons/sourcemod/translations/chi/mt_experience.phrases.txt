@@ -1,6 +1,5 @@
 "Phrases"
 {
-
 	"VOTE_DISPLAY_MSG"
 	{
 		"chi"			"开始进行mix（经验分队）"
@@ -75,4 +74,3 @@
 		"chi"			"Steam返回数据异常，可能是API Key设置不正确，请联系服务器拥有者或插件开发者。"
 	}
 }
-

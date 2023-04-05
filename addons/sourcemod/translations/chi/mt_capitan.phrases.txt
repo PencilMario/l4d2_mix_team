@@ -18,13 +18,12 @@
 		"chi"			"[{green}!{default}] 队长 {olive}{1} {default}选择了玩家 {green}{2}"
 	}
 
-	"VOTE_DISPLAY_MSG"
+	"VOTE_TITLE"
 	{
 		"chi"			"开始进行mix（队长选人）"
 	}
 
-	"VOTE_END_MSG"
-
+	"VOTE_MESSAGE"
 	{
 		"chi"			"即将开始mix..."
 	}

@@ -74,4 +74,3 @@
 		"en"			"Steam returns abnormal data, probably because the API Key is not set correctly, please contact the server owner or plugin developer."
 	}
 }
-

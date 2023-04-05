@@ -8,9 +8,7 @@
 
 #undef REQUIRE_PLUGIN
 #include <readyup>
-#include <left4dhooks>
-#define REQUIRE_PLUGIN
-
+#define LIB_READY              "readyup" 
 
 #include "include/mix_team.inc"
 
@@ -20,17 +18,13 @@ public Plugin myinfo =
 	name = "MixTeam",
 	author = "TouchMe",
 	description = "Mixing players for versus mode",
-	version = "2.2",
+	version = "2.1",
 	url = "https://github.com/TouchMe-Inc/l4d2_mix_team"
 };
 
-// Libs
-#define LIB_READY               "readyup" 
-#define LIB_DHOOK               "left4dhooks"
 
 #define TRANSLATIONS            "mix_team.phrases"
 
-// Forwards
 #define FORWARD_DISPLAY_MSG     "GetVoteDisplayMessage"
 #define FORWARD_VOTEEND_MSG     "GetVoteEndMessage"
 #define FORWARD_IN_PROGRESS     "OnMixInProgress"
@@ -39,13 +33,8 @@ public Plugin myinfo =
 
 #define VOTE_TIME               15
 
-// Macros
 #define IS_VALID_CLIENT(%1)     (%1 > 0 && %1 <= MaxClients)
 #define IS_REAL_CLIENT(%1)      (IsClientInGame(%1) && !IsFakeClient(%1))
-
-// Sugar
-#define SetHumanSpec            L4D_SetHumanSpec
-#define TakeOverBot             L4D_TakeOverBot
 
 
 enum struct TypeItem
@@ -144,14 +133,14 @@ methodmap TypeList < ArrayList
 	}
 }
 
-TypeList
-	g_hTypeList = null;
-
 enum struct Players
 {
 	bool member;
 	int team;
 }
+
+TypeList
+	g_hTypeList = null;
 
 Players 
 	g_hPlayers[MAXPLAYERS + 1];
@@ -166,7 +155,6 @@ int
 
 bool
 	g_bReadyUpAvailable = false,
-	g_bDHookAvailable = false,
 	g_bGamemodeAvailable = false,
 	g_bRoundIsLive = false;
 
@@ -182,10 +170,8 @@ GlobalForward
   *
   * @noreturn
   */
-public void OnAllPluginsLoaded()
-{
+public void OnAllPluginsLoaded() {
 	g_bReadyUpAvailable = LibraryExists(LIB_READY);
-	g_bDHookAvailable = LibraryExists(LIB_DHOOK);
 }
 
 /**
@@ -199,10 +185,6 @@ public void OnLibraryRemoved(const char[] sName)
 {
 	if (StrEqual(sName, LIB_READY)) {
 		g_bReadyUpAvailable = false;
-	}
-
-	if (StrEqual(sName, LIB_DHOOK)) {
-		g_bDHookAvailable = false;
 	}
 }
 
@@ -218,10 +200,6 @@ public void OnLibraryAdded(const char[] sName)
 	if (StrEqual(sName, LIB_READY)) {
 		g_bReadyUpAvailable = true;
 	}
-
-	if (StrEqual(sName, LIB_DHOOK)) {
-		g_bDHookAvailable = true;
-	}
 }
 
 /**
@@ -232,9 +210,20 @@ public void OnLibraryAdded(const char[] sName)
   */
 public void OnRoundIsLive() 
 {
-	if (IsMix()) {
+	if (g_iMixState != STATE_NONE) {
 		AbortMix();
 	}
+
+	g_bRoundIsLive = true;
+}
+
+/**
+  * Called when the map starts loading.
+  *
+  * @noreturn
+  */
+public void OnMapInit(const char[] sMapName) { 
+	g_bRoundIsLive = false;
 }
 
 /**
@@ -262,7 +251,6 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("CallEndMix", Native_CallEndMix);
 	CreateNative("IsMixMember", Native_IsMixMember);
 	CreateNative("GetLastTeam", Native_GetLastTeam);
-	CreateNative("SetClientTeam", Native_SetClientTeam);
 
 	RegPluginLibrary("mix_team");
 
@@ -377,34 +365,6 @@ int Native_GetLastTeam(Handle hPlugin, int iParams)
 }
 
 /**
- * Native
- * 
- * @param hPlugin       Handle to the plugin
- * @param iParams       Number of parameters
- * @return              Return
- */
-int Native_SetClientTeam(Handle hPlugin, int iParams)
-{
-	int iClient = GetNativeCell(1);
-	int iTeam = GetNativeCell(2);
-
-	return SetupClientTeam(iClient, iTeam);
-}
-
-
-/**
-  * Called when the map starts loading.
-  *
-  * @noreturn
-  */
-public void OnMapInit(const char[] sMapName) 
-{
-	g_bRoundIsLive = false;
-	g_iMixState = STATE_NONE;
-	g_iMixType = TYPE_NONE;
-}
-
-/**
  * Called when the plugin is fully initialized and all known external references are resolved.
  * 
  * @noreturn
@@ -451,7 +411,7 @@ void InitTranslations()
 
 /**
  * Initializing the necessary cvars.
- *
+ * 
  * @noreturn
  */
 void InitCvars()
@@ -505,19 +465,22 @@ void InitEvents()
 	HookEvent("round_end", Event_RoundEnd);
 
 	HookEvent("player_team", Event_PlayerTeam);
-	HookEvent("player_disconnect", Event_PlayerDisconnect, EventHookMode_Pre);
 }
 
 /**
- * Round start event.
- */
+  * Round start event.
+  *
+  * @params  				see events.inc > HookEvent.
+  *
+  * @noreturn
+  */
 public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcast) 
 {
 	if (!g_bReadyUpAvailable)
 	{
 		g_bRoundIsLive = true;
 
-		if (IsMix()) {
+		if (g_iMixState != STATE_NONE) {
 			AbortMix();
 		}
 	}
@@ -530,7 +493,7 @@ public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcas
  */
 public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast) 
 {
-	if (!g_bReadyUpAvailable) {
+	if (g_bRoundIsLive) {
 		g_bRoundIsLive = false;
 	}
 	
@@ -542,40 +505,25 @@ public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
  */
 public Action Event_PlayerTeam(Event event, char[] event_name, bool dontBroadcast)
 {
-	if (!IsMix()) {
-		return Plugin_Continue;
-	}
-
-	int iClient = GetClientOfUserId(event.GetInt("userid"));
-	int iOldTeam = event.GetInt("oldteam");
-	int iNewTeam = event.GetInt("team");
-
-	if (IS_VALID_CLIENT(iClient)
-	&& !IsFakeClient(iClient)
-	&& !g_hPlayers[iClient].member
-	&& iOldTeam == TEAM_NONE
-	&& iNewTeam != TEAM_SPECTATOR) {
-		SetupClientTeam(iClient, TEAM_SPECTATOR);
-	}
-
-	return Plugin_Continue;
-}
-
-/**
- * Called before client disconnected.
- */
-public Action Event_PlayerDisconnect(Event event, const char[] name, bool dontBroadcast) 
-{
-	if (!IsMix()) {
-		return Plugin_Continue;
-	}
-
 	int iClient = GetClientOfUserId(event.GetInt("userid"));
 
-	if (IS_VALID_CLIENT(iClient) && !IsFakeClient(iClient) && g_hPlayers[iClient].member)
+	if (IS_REAL_CLIENT(iClient) && g_iMixState != STATE_NONE)
 	{
-		AbortMix();
-		CPrintToChatAll("%t", "CLIENT_LEAVE", iClient);
+		int iOldTeam = event.GetInt("oldteam");
+
+		if (iOldTeam == TEAM_NONE)
+		{
+			SetClientTeam(iClient, TEAM_SPECTATOR);
+			return Plugin_Continue;
+		}
+
+		int iNewTeam = event.GetInt("team");
+
+		if (iNewTeam == TEAM_NONE && g_hPlayers[iClient].member)
+		{
+			AbortMix();
+			CPrintToChatAll("%t", "CLIENT_LEAVE", iClient);
+		}
 	}
 
 	return Plugin_Continue;
@@ -604,7 +552,7 @@ void InitCmds()
  */
 public Action Cmd_OnPlayerJoinTeam(int iClient, const char[] sCmd, int iArgs)
 {
-	if (IsMix())
+	if (g_iMixState != STATE_NONE)
 	{
 		CPrintToChat(iClient, "%T", "CANT_CHANGE_TEAM", iClient);
 		return Plugin_Stop;
@@ -655,7 +603,7 @@ public Action Cmd_VoteMix(int iClient, int iArgs)
 		return Plugin_Continue;
 	}
 
-	if (IsMix()) 
+	if (g_iMixState != STATE_NONE) 
 	{
 		CPrintToChat(iClient, "%T", "ALREADY_IN_PROGRESS", iClient);
 
@@ -698,11 +646,11 @@ public Action Cmd_VoteMix(int iClient, int iArgs)
  */
 public Action Cmd_CancelMix(int iClient, int iArgs)
 {
-	if (!g_bGamemodeAvailable || !IS_VALID_CLIENT(iClient)) {
+	if (!g_bGamemodeAvailable || !IS_VALID_CLIENT(iClient) || !g_hPlayers[iClient].member) {
 		return Plugin_Handled;
 	}
 
-	if (!IsMix() || !g_hPlayers[iClient].member) {
+	if (g_iMixState == STATE_NONE) {
 		return Plugin_Continue;
 	}
 
@@ -904,11 +852,6 @@ public int HandlerVote(NativeVote hVote, MenuAction iAction, int iParam1, int iP
 	return 0;
 }
 
-/**
- * Initiation of the end of the command mix.
- * 
- * @noreturn
- */
 void EndMix()
 {
 	char sMixName[MIX_NAME_SIZE];
@@ -947,15 +890,6 @@ void AbortMix()
 }
 
 /**
- * Checks if a mix is ​​currently running.
- *
- * @return             Returns true if a mix is ​​currently in progress, otherwise false
- */
-bool IsMix() {
-	return g_iMixState != STATE_NONE;
-}
-
-/**
  * Returns the number of players in the game.
  * 
  * @return             Client count
@@ -991,7 +925,7 @@ void RollbackPlayers()
 			continue;
 		}
 
-		SetupClientTeam(iClient, g_hPlayers[iClient].team);
+		SetClientTeam(iClient, g_hPlayers[iClient].team);
 	}
 }
 
@@ -1008,7 +942,7 @@ void SetAllClientSpectator()
 			continue;
 		}
 
-		SetupClientTeam(iClient, TEAM_SPECTATOR);
+		SetClientTeam(iClient, TEAM_SPECTATOR);
 	}
 }
 
@@ -1055,82 +989,6 @@ void CPrintExampleArguments(int iClient)
 	}
 }
 
-/**
- * Checks if the current round is the second.
- *
- * @return            Returns true if is second round, otherwise false
-*/
-bool InSecondHalfOfRound() {
-	return view_as<bool>(GameRules_GetProp("m_bInSecondHalfOfRound"));
-}
-
-/**
- * Sets the client team.
- * 
- * @param iClient     Client index
- * @param iTeam       Param description
- * @return            true if success
- */
-bool SetupClientTeam(int iClient, int iTeam)
-{
-	if (GetClientTeam(iClient) == iTeam) {
-		return true;
-	}
-
-	if (iTeam == TEAM_INFECTED || iTeam == TEAM_SPECTATOR)
-	{
-		ChangeClientTeam(iClient, iTeam);
-		return true;
-	}
-
-	int iBot = FindSurvivorBot();
-	if (iTeam == TEAM_SURVIVOR && iBot != -1)
-	{
-		if (g_bDHookAvailable)
-		{
-			ChangeClientTeam(iClient, TEAM_NONE);
-			SetHumanSpec(iBot, iClient);
-			TakeOverBot(iClient);
-		}
-
-		else {
-			CheatCommand(iClient, "sb_takecontrol");
-		}
-
-		return true;
-	}
-
-	return false;
-}
-
-/**
- * Hack to execute cheat commands.
- * 
- * @noreturn
- */
-void CheatCommand(int iClient, const char[] sCmd, const char[] sArgs = "")
-{
-	int iFlags = GetCommandFlags(sCmd);
-	SetCommandFlags(sCmd, iFlags & ~FCVAR_CHEAT);
-	FakeClientCommand(iClient, "%s %s", sCmd, sArgs);
-	SetCommandFlags(sCmd, iFlags);
-}
-
-/**
- * Finds a free bot.
- * 
- * @return     Bot index or -1
- */
-int FindSurvivorBot()
-{
-	for (int iClient = 1; iClient <= MaxClients; iClient++)
-	{
-		if (!IsClientInGame(iClient) || !IsFakeClient(iClient) || !IS_SURVIVOR(iClient)) {
-			continue;
-		}
-
-		return iClient;
-	}
-
-	return -1;
+int InSecondHalfOfRound() {
+	return GameRules_GetProp("m_bInSecondHalfOfRound");
 }
