@@ -141,6 +141,6 @@ public Action OnMixInProgress()
 			SetClientTeam(g_iPreviousTeams[iTeam][iClient], iTeam);
 		}
 	}
-
+	CallEndMix();
 	return Plugin_Continue;
 }
