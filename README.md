@@ -1,3 +1,5 @@
+🌏 [简体中文](./README_zhCN.md)
+
 # About mix_team
 Plugin adds voting for mixing teams. The mix_team plugin itself does not implement any mixing of players, but provides an API. 
 
@@ -52,7 +54,8 @@ public Action Timer_EndMix()
 ```
 
 ## Require
-[NativeVotes](https://github.com/sapphonie/sourcemod-nativevotes-updated)
+[NativeVotes](https://github.com/sapphonie/sourcemod-nativevotes-updated)    
+[ripext](https://github.com/ErikMinekus/sm-ripext/releases/tag/1.3.1)
 
 ## Support
 [ReadyUp](https://github.com/SirPlease/L4D2-Competitive-Rework/blob/master/addons/sourcemod/scripting/readyup.sp)
