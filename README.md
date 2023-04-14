@@ -3,6 +3,8 @@
 # About mix_team
 Plugin adds voting for mixing teams. The mix_team plugin itself does not implement any mixing of players, but provides an API. 
 
+> !! Please use branch `patch-1`
+
 Several prepared author's mix types are available: mt_capitan and mt_random. Also mix by rank [VersusStats](https://github.com/TouchMe-Inc/l4d2_versus_stats)
 
 ## Commands
