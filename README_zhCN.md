@@ -3,11 +3,14 @@
 该插件添加功能mix队伍投票。mix_team插件本身并不实现玩家混合，但提供了API。
 多种预置mix类型可用：
 
+> !! mixmap系列已经停止开发，请使用分支patch-1
+> 因为mixmap需要与mix兼容，而上游经常改函数名，我实在是懒得改了，main分支的代码不是最新的。
+
 1. capitan(队长选人)
 2. random(随机分配)
 3. exp(基于游戏经验分配)
-4. randmap(随机官方地图)
-5. ranthirdmap(随机第三方地图)
+4. ~~randmap(随机官方地图)~~
+5. ~~ranthirdmap(随机第三方地图)~~
 6. rank(基于[VersusStat](https://github.com/TouchMe-Inc/l4d2_versus_stats)分配)
 
 ## 命令
