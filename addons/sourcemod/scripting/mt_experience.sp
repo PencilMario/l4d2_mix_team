@@ -84,7 +84,7 @@ public void OnPluginStart() {
     InitTranslations();
     g_Lplayers = new ArrayList(sizeof(Player));
     temp_prp = CreateConVar("itemp_prp", "-1", "TempVariable");
-    g_team_allocation = CreateConVar("sm_mix_exp_type", "1", "强制选择MIX的分队算法。0=自动选择 1=尽量平均(Average) 2=尽量平衡(Balance) 3=优先喷子(Slot)");
+    g_team_allocation = CreateConVar("sm_mix_exp_type", "0", "强制选择MIX的分队算法。0=自动选择 1=尽量平均(Average) 2=尽量平衡(Balance) ");
 
 }
 
@@ -352,9 +352,7 @@ void PrintMixMethod(int type)
 void SelAndMix(){
     bool result;
     if (!g_team_allocation.IntValue){
-        if (slot_diff()){
-            PrintMixMethod(3);
-        }else if(min_diff()){
+        if(min_diff()){
             PrintMixMethod(1);
         }else if(balance_diff()){
             PrintMixMethod(2);
@@ -368,10 +366,6 @@ void SelAndMix(){
             case 2:
             {
                 result = balance_diff();
-            }
-            case 3:
-            {
-                result = slot_diff();
             }
             default:
             {
@@ -390,103 +384,6 @@ void SelAndMix(){
     }
 }
 
-/**
- * Allocate based on the players' preferred weapons. 
- * Prioritize ensuring that each team has one shotgun player (top 4 ranking), 
- * and distribute the rest evenly among the remaining players.
- * 
- * @return true if the distribution can be completed smoothly, false otherwise.
- */
-bool slot_diff(){
-    g_Lplayers.SortCustom(SortByRank);
-    ArrayList t_Lplayers = new ArrayList();
-    bool p1, p2 = false;
-    Player Shotgun1, Shotgun2;
-    int i, g;  //shotgun index
-    int maxdiff = 2147483647;
-    for (i = 0; i < 4; i++){
-        g_Lplayers.GetArray(i, tempPlayer);
-        if (tempPlayer.type == PTYPE_SHOTGUN){
-            if (!p1){
-                g_Lplayers.GetArray(i, Shotgun1);
-                p1 = true;
-                for (g = i+1; g < 4; g++){
-                    g_Lplayers.GetArray(i, tempPlayer);
-                    if (tempPlayer.type == PTYPE_SHOTGUN){
-                        if (!p2){
-                            g_Lplayers.GetArray(i, Shotgun2);
-                            p2 = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (!(p1 && p2)) return false;
-    for (int n = 0; i < g_Lplayers.Length; i++){
-        if (n != i && n != g){
-            g_Lplayers.GetArray(n, tempPlayer);
-            t_Lplayers.PushArray(tempPlayer);
-        }
-    }
-    t_Lplayers.SortCustom(SortByRank);
-
-    for (int j = 0; j < t_Lplayers.Length - 2; j++)
-    {
-        for (int k = j + 1; k < t_Lplayers.Length - 1; k++)
-        {
-            for (int l = k + 1; l < t_Lplayers.Length; l++)
-            {
-                ArrayList group1 = new ArrayList();
-                group1.Resize(4);
-                t_Lplayers.GetArray(j, tempPlayer);  
-                group1.SetArray(1,tempPlayer);
-                t_Lplayers.GetArray(k, tempPlayer);  
-                group1.SetArray(2,tempPlayer);
-                t_Lplayers.GetArray(l, tempPlayer);  
-                group1.SetArray(3,tempPlayer);
-                int m, n, o;
-                for (m=0; m<t_Lplayers.Length; m++){
-                    if (m != j && m != k && m != l) break;
-                }
-                for (n=0; n<t_Lplayers.Length; n++){
-                    if ( n != j && n != k && n != l && n != m) break;
-                }
-                for (o=0; o<t_Lplayers.Length; o++){
-                    if ( o != j && o != k && o != l && o != m && o != n) break;
-                }
-               
-                
-                ArrayList group2 = new ArrayList();
-                group2.Resize(4);
-                t_Lplayers.GetArray(m, tempPlayer);  
-                group2.SetArray(0,tempPlayer);
-                t_Lplayers.GetArray(n, tempPlayer);  
-                group2.SetArray(1,tempPlayer);
-                t_Lplayers.GetArray(o, tempPlayer);  
-                group2.SetArray(2,tempPlayer);
-                int diff = diff_sum(group1, group2);
-                if (diff < maxdiff)
-                {
-                    maxdiff = diff;
-                    if (g_Lteam1 != INVALID_HANDLE){
-                        g_Lteam1.Resize(0);
-                    }
-                    if (g_Lteam2 != INVALID_HANDLE){
-                        g_Lteam2.Resize(0);
-                    }
-                    g_Lteam1 = group1.Clone();
-                    g_Lteam2 = group2.Clone();
-                }
-                delete group1;
-                delete group2;
-            }
-        }
-    }
-    g_Lteam1.PushArray(Shotgun1);
-    g_Lteam2.PushArray(Shotgun2);
-    return true;
-}
 
 /**
  * Simply balancing the team.
